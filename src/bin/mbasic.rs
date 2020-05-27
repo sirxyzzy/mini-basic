@@ -49,6 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     env_logger::init();
 
+    if opts.interactive {
+        println!("Running interactively");
+    }
+
     let path = Path::new(&opts.source);
 
     let options = ParseOptions { pretty_print: opts.pretty };
@@ -67,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  .map(|e| e.into_path()) // Dir entries keep a file lock, so consume them into paths
                  .filter(|p| match_ext(p, &extensions)) { 
             match parse_file(&path, &options) {
-                Ok(info) => {
+                Ok(_info) => {
                     parsed_ok += 1;
                     if opts.verbose {
                         println!("Parsed {}", path.display());
@@ -87,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         trace!("Parsing {}", path.display());
         match parse_file(&path, &options) {
             Err(e) => error!("Parse failed {}", e),
-            Ok(info) => ()
+            Ok(_info) => ()
         }
         trace!("Took {}ms", now.elapsed().as_millis()); 
     }

@@ -1,5 +1,4 @@
 use pest_consume::{ Parser, match_nodes, Error};
-use regex::Regex;
 
 #[derive(Parser)] // This allows Pest to add all the parse methods
 #[grammar = "basic.pest"]
@@ -89,6 +88,39 @@ fn print_single_node(node: &Node) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program1() {
+        let _node = BasicParser::program(parse(Rule::program, "999 END")).unwrap();
+    }
+
+    #[test]
+    fn program2() {
+        let source = r#"10 REM This is a simple program
+20 END"#;
+        let _node = BasicParser::program(parse(Rule::program, source)).unwrap();
+    }
+    #[test]
+    fn program3() {
+        // Must have an end
+        parse_fail(Rule::program, "10 REM This is a simple program");
+    }
+
+    #[test]
+    fn program4() {
+        // No spaces before line numbers
+        let source = r#"10 REM This is a simple program
+ 20 END"#;
+        parse_fail(Rule::program, source);
+    }
+
+    #[test]
+    fn program5() {
+        // Must have an END
+        let source = r#"10 REM This is a simple program
+"#;
+        parse_fail(Rule::program, source);
+    }
 
     //
     // test helpers

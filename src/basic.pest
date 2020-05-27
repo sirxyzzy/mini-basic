@@ -1,11 +1,21 @@
-WHITESPACE = _{ " " | "\t"  | "\0c" | "\x0b" | "\x17" | "\x18" | "\x19" | "\x1a" }
+ws = _{ (" " | "\t")* }
 
-program = { SOI ~ block* ~ end_line }
-block = { (line | for_block)+ }
+letter = {ASCII_ALPHA_UPPER}
+digit = {ASCII_DIGIT}
+
+quote = { "\"" }
+plain_string_character = { "+" | "-" | "." | digit | letter }
+unquoted_string_character = { " " | plain_string_character }
+unquoted_string = @{ plain_string_character 
+| (plain_string_character ~ unquoted_string_character* ~ plain_string_character) }
+quoted_string = @{ quote ~ (!(quote | NEWLINE) ~ ANY)* ~ quote}
+
+program = { block ~ end_line }
+block = { (line | for_block)* }
 line = { line_number ~ statement ~ end_of_line }
-line_number = @{ ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? }
-end_of_line = @{ NEWLINE }
-end_line = { line_number ~ end_statement ~ end_of_line? ~ EOI }
+line_number = { ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ws }
+end_of_line = { ws ~ NEWLINE }
+end_line = { line_number ~ ws ~ end_statement ~ end_of_line? ~ EOI }
 end_statement = @{ "END" }
 
 statement = { data_statement | def_statement |
@@ -42,6 +52,42 @@ restore_statement = { "RESTORE" ~ suffix }
 return_statement = { "RETURN" ~ suffix }
 stop_statement = { "STOP" ~ suffix }
 
+numeric_constant = { sign? ~ numeric_rep }
+sign = { "+" | "-" }
+numeric_rep = { significand ~ exrad? }
+significand = { (integer? ~ fraction) | (integer ~ "."?) }
+integer = @{ ASCII_DIGIT+ }
+fraction = @{ "." | ASCII_DIGIT+ }
+exrad = @{ "E" ~ sign? ~ integer }
+string_constant = { quoted_string }
+
+
+variable = { string_variable | numeric_variable }
+numeric_variable = { numeric_array_element | simple_numeric_variable }
+simple_numeric_variable = @{ letter ~ ASCII_DIGIT? }
+numeric_array_element  = { numeric_array_name ~ subscript }
+numeric_array_name = { letter }
+subscript = { "(" ~ ws ~ numeric_expression ~ ws ~ ( "," ~ numeric_expression )?  ~ ws ~ ")" }
+string_variable = @{ letter ~ "$" }
+numeric_defined_function = @{ "FN" ~ letter }
+
+expression = { numeric_expression | string_expression }
+numeric_expression = { sign? ~ term ~ (sign ~ term)* }
+term = { factor ~ (ws ~ multiplier ~ factor)* }
+factor = { primary ~ (ws ~ "^" ~ primary)* }
+multiplier = { "*" | "/" }
+primary = { numeric_variable 
+  | numeric_rep 
+  | numeric_function_ref 
+  | ( "(" ~ ws ~ numeric_expression ~ ws ~ ")" ) }
+numeric_function_ref  = { numeric_function_name ~ argument_list? }
+numeric_function_name = { numeric_defined_function | numeric_supplied_function }
+argument_list = { "(" ~ ws ~ argument ~ ws ~ ")" }
+argument = { numeric_expression }
+string_expression  = { string_variable | string_constant }
+numeric_supplied_function = { "ABS" | "ATN" | "COS" | "EXP" | "INT" | 
+  "LOG" | "RND" | "SGN" | "SIN" | "SQR" | "TAN" }
+
 //
 // for
 //
@@ -49,5 +95,9 @@ for_block = { for_line ~ for_body }
 for_body = { block ~ next_line }
 for_line = { line_number ~ for_statement ~ end_of_line }
 next_line = { line_number ~ next_statement ~ end_of_line }
-for_statement = { "FOR" ~ suffix }
-next_statement = { "NEXT" ~ suffix }
+for_statement = { "FOR" ~ ws ~ control_variable ~ ws ~  "=" ~ ws ~ initial_value ~ ws ~ "TO" ~ ws ~ limit ~ ( ws ~ "STEP" ~ ws ~ increment)?  }
+control_variable = { simple_numeric_variable }
+initial_value = { numeric_expression }
+limit = { numeric_expression }
+increment = { numeric_expression }
+next_statement = { "NEXT" ~ ws ~ control_variable }
