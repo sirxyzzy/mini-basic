@@ -1,0 +1,53 @@
+WHITESPACE = _{ " " | "\t"  | "\0c" | "\x0b" | "\x17" | "\x18" | "\x19" | "\x1a" }
+
+program = { SOI ~ block* ~ end_line }
+block = { (line | for_block)+ }
+line = { line_number ~ statement ~ end_of_line }
+line_number = @{ ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? }
+end_of_line = @{ NEWLINE }
+end_line = { line_number ~ end_statement ~ end_of_line? ~ EOI }
+end_statement = @{ "END" }
+
+statement = { data_statement | def_statement |
+    dimension_statement | gosub_statement |
+    goto_statement | if_then_statement |
+    input_statement | let_statement |
+    on_goto_statement | option_statement |
+    print_statement | randomize_statement |
+    read_statement | remark_statement |
+    restore_statement | return_statement |
+    stop_statement }
+
+// Placemarker
+suffix = { (!NEWLINE ~ ANY)* }
+
+//
+// simple statements
+//
+data_statement = { "DATA" ~ suffix }
+def_statement = { "DEF" ~ suffix }
+dimension_statement = { "DIM" ~ suffix }
+gosub_statement = { "GOSUB" ~ suffix }
+goto_statement = { "GOTO" ~ suffix }
+if_then_statement = { "IF" ~ suffix }
+input_statement = { "INPUT" ~ suffix }
+let_statement = { "LET" ~ suffix }
+on_goto_statement = { "ON" ~ suffix }
+option_statement = { "OPTION" ~ suffix }
+print_statement = { "PRINT" ~ suffix }
+randomize_statement = { "RAND" ~ suffix }
+read_statement = { "READ" ~ suffix }
+remark_statement = { "REM" ~ suffix }
+restore_statement = { "RESTORE" ~ suffix }
+return_statement = { "RETURN" ~ suffix }
+stop_statement = { "STOP" ~ suffix }
+
+//
+// for
+//
+for_block = { for_line ~ for_body }
+for_body = { block ~ next_line }
+for_line = { line_number ~ for_statement ~ end_of_line }
+next_line = { line_number ~ next_statement ~ end_of_line }
+for_statement = { "FOR" ~ suffix }
+next_statement = { "NEXT" ~ suffix }
