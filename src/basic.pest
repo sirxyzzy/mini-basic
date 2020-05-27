@@ -1,21 +1,20 @@
-ws = _{ (" " | "\t")* }
+WHITESPACE = _{ " " }
 
 letter = {ASCII_ALPHA_UPPER}
 digit = {ASCII_DIGIT}
 
 quote = { "\"" }
 plain_string_character = { "+" | "-" | "." | digit | letter }
-unquoted_string_character = { " " | plain_string_character }
-unquoted_string = @{ plain_string_character 
-| (plain_string_character ~ unquoted_string_character* ~ plain_string_character) }
+unquoted_string = @{ plain_string_character+ ~ ( " "+ ~ plain_string_character+)* }
 quoted_string = @{ quote ~ (!(quote | NEWLINE) ~ ANY)* ~ quote}
 
-program = { block ~ end_line }
-block = { (line | for_block)* }
-line = { line_number ~ statement ~ end_of_line }
-line_number = { ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ws }
-end_of_line = { ws ~ NEWLINE }
-end_line = { line_number ~ ws ~ end_statement ~ end_of_line? ~ EOI }
+program = ${ block ~ end_line }
+block = ${ (line | for_block)* }
+line = !{ line_number ~ statement ~ end_of_line }
+line_number_ref = @{ ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? }
+line_number = @{ ASCII_DIGIT ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ ASCII_DIGIT? ~ " "}
+end_of_line = _{ NEWLINE }
+end_line = !{ line_number ~ end_statement ~ end_of_line? ~ EOI }
 end_statement = @{ "END" }
 
 statement = { data_statement | def_statement |
@@ -28,66 +27,82 @@ statement = { data_statement | def_statement |
     restore_statement | return_statement |
     stop_statement }
 
-// Placemarker
-suffix = { (!NEWLINE ~ ANY)* }
+data_statement = { "DATA " ~ datum ~ ("," ~ datum)* }
+datum = { quoted_string | unquoted_string }
 
-//
-// simple statements
-//
-data_statement = { "DATA" ~ suffix }
-def_statement = { "DEF" ~ suffix }
-dimension_statement = { "DIM" ~ suffix }
-gosub_statement = { "GOSUB" ~ suffix }
-goto_statement = { "GOTO" ~ suffix }
-if_then_statement = { "IF" ~ suffix }
-input_statement = { "INPUT" ~ suffix }
+def_statement = { "DEF " ~ numeric_defined_function 
+                  ~ parameter_list? ~ "=" ~ numeric_expression }
+numeric_defined_function = @{ "FN" ~ letter }
+parameter_list = { "(" ~ parameter ~ ")" }
+parameter = { simple_numeric_variable }
+
+dimension_statement = { "DIM " ~ array_declaration ~ ("," ~ array_declaration)* }
+array_declaration = { numeric_array_name ~ "(" ~ bounds ~ ")" }
+bounds = { integer ~ ("," ~ integer)? }
+
+gosub_statement = { "GO" ~ "SUB " ~ line_number_ref }
+goto_statement = { "GO" ~ "TO " ~ line_number_ref }
+
+if_then_statement = { "IF " ~ relational_expression ~ "THEN" ~ line_number_ref }
+relational_expression = { (numeric_expression ~ relation ~ numeric_expression) 
+                          | (string_expression ~ equality_relation ~ string_expression) }
+relation = { equality_relation | ">=" | "<=" | "<" | ">" }
+equality_relation = { "=" | "<>" }
+
+input_statement = { "INPUT " ~ variable_list }
 
 // let
 let_statement = { numeric_let_statement | string_let_statement }
-numeric_let_statement   = { "LET" ~ ws ~ numeric_variable ~ ws ~ "=" ~ ws ~ numeric_expression }
-string_let_statement = { "LET" ~ ws ~ string_variable  ~ ws ~ "=" ~ ws ~ string_expression }
+numeric_let_statement   = { "LET " ~ numeric_variable ~ "=" ~ numeric_expression }
+string_let_statement = { "LET " ~ string_variable  ~ "=" ~ string_expression }
 
-on_goto_statement = { "ON" ~ suffix }
-option_statement = { "OPTION" ~ suffix }
-print_statement = { "PRINT" ~ suffix }
-randomize_statement = { "RAND" ~ suffix }
-read_statement = { "READ" ~ suffix }
-remark_statement = { "REM" ~ suffix }
-restore_statement = { "RESTORE" ~ suffix }
-return_statement = { "RETURN" ~ suffix }
-stop_statement = { "STOP" ~ suffix }
+on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
+option_statement = { "OPTION " ~ "BASE" ~ ("0" | "1") }
+
+print_statement = { ("PRINT " ~ print_list) | "PRINT" }
+print_list = { (print_item? ~ print_separator)* ~ print_item? }
+print_item = { tab_call | expression }
+tab_call = { "TAB" ~ "(" ~ numeric_expression ~ ")" }
+print_separator = { "," | ";" }
+
+randomize_statement = { "RANDOMIZE" }
+read_statement = { "READ " ~ variable_list }
+remark_statement = { "REM" ~ (!NEWLINE ~ ANY)* }
+restore_statement = { "RESTORE" }
+return_statement = { "RETURN" }
+stop_statement = { "STOP" }
 
 numeric_constant = { sign? ~ numeric_rep }
 sign = { "+" | "-" }
 numeric_rep = { significand ~ exrad? }
 significand = { (integer? ~ fraction) | (integer ~ "."?) }
 integer = @{ ASCII_DIGIT+ }
-fraction = @{ "." | ASCII_DIGIT+ }
+fraction = @{ "." ~ ASCII_DIGIT+ }
 exrad = @{ "E" ~ sign? ~ integer }
 string_constant = { quoted_string }
 
 variable = { string_variable | numeric_variable }
+variable_list = { variable ~ ("," ~ variable)* }
 numeric_variable = { numeric_array_element | simple_numeric_variable }
 simple_numeric_variable = @{ letter ~ ASCII_DIGIT? }
 numeric_array_element  = { numeric_array_name ~ subscript }
 numeric_array_name = { letter }
-subscript = { "(" ~ ws ~ numeric_expression ~ ws ~ ( "," ~ numeric_expression )?  ~ ws ~ ")" }
+subscript = { "(" ~ numeric_expression ~ ( "," ~ numeric_expression )?  ~ ")" }
 string_variable = @{ letter ~ "$" }
-numeric_defined_function = @{ "FN" ~ letter }
 
-expression = { numeric_expression | string_expression }
+expression = { string_expression | numeric_expression }
 numeric_expression = { sign? ~ term ~ (sign ~ term)* }
-term = { factor ~ (ws ~ multiplier ~ factor)* }
-factor = { primary ~ (ws ~ "^" ~ primary)* }
+term = { factor ~ (multiplier ~ factor)* }
+factor = { primary ~ ("^" ~ primary)* }
 multiplier = { "*" | "/" }
 primary = {  
     numeric_rep 
   | numeric_function_ref 
   | numeric_variable
-  | ( "(" ~ ws ~ numeric_expression ~ ws ~ ")" ) }
+  | ( "(" ~ numeric_expression ~ ")" ) }
 numeric_function_ref  = { numeric_function_name ~ argument_list? }
 numeric_function_name = { numeric_defined_function | numeric_supplied_function }
-argument_list = { "(" ~ ws ~ argument ~ ws ~ ")" }
+argument_list = { "(" ~ argument ~ ")" }
 argument = { numeric_expression }
 string_expression  = { string_variable | string_constant }
 numeric_supplied_function = { "ABS" | "ATN" | "COS" | "EXP" | "INT" | 
@@ -98,11 +113,11 @@ numeric_supplied_function = { "ABS" | "ATN" | "COS" | "EXP" | "INT" |
 //
 for_block = { for_line ~ for_body }
 for_body = { block ~ next_line }
-for_line = { line_number ~ for_statement ~ end_of_line }
-next_line = { line_number ~ next_statement ~ end_of_line }
-for_statement = { "FOR" ~ ws ~ control_variable ~ ws ~  "=" ~ ws ~ initial_value ~ ws ~ "TO" ~ ws ~ limit ~ ( ws ~ "STEP" ~ ws ~ increment)?  }
+for_line = !{ line_number ~ for_statement ~ end_of_line }
+next_line = !{ line_number ~ next_statement ~ end_of_line }
+for_statement = { "FOR" ~ control_variable ~  "=" ~ initial_value ~ "TO" ~ limit ~ ( "STEP" ~ increment)?  }
 control_variable = { simple_numeric_variable }
 initial_value = { numeric_expression }
 limit = { numeric_expression }
 increment = { numeric_expression }
-next_statement = { "NEXT" ~ ws ~ control_variable }
+next_statement = { "NEXT" ~ control_variable }

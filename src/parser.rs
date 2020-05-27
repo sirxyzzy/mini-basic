@@ -24,7 +24,7 @@ pub fn parse_source(source: &str, options: &ParseOptions) -> Result<()> {
         print_node(main_node.clone());
     }
 
-    BasicParser::program(main_node)?;
+    // BasicParser::program(main_node)?;
 
     Ok(())
 }
@@ -127,7 +127,117 @@ mod tests {
 
     #[test]
     fn numeric_let1() {
-        let node = parse(Rule::numeric_let_statement, "LET S=SQR(N)");
+        let _node = parse(Rule::numeric_let_statement, "LET S=SQR(N)");
+    }
+
+    #[test]
+    fn numeric_let2() {
+        let _node = parse(Rule::numeric_let_statement, "LET P = 3.14159");
+    }
+
+    #[test]
+    fn numeric_let3() {
+        let _node = parse(Rule::numeric_let_statement, "LET A(X,3) = SIN(X)*Y + 1");
+    }
+
+    #[test]
+    fn string_let1() {
+        let _node = parse(Rule::string_let_statement, "LET A$ = \"ABC\"");
+    }
+
+    #[test]
+    fn string_let2() {
+        let _node = parse(Rule::string_let_statement, "LET A$ = B$");
+    }
+
+    #[test]
+    fn numeric_rep() {
+        let _node = parse(Rule::numeric_rep, "3.14159");
+    }
+
+    #[test]
+    fn def_statement1() {
+        let _node = parse(Rule::def_statement, "DEF FNF(X) = X^4 - 1");
+    }
+
+    #[test]
+    fn def_statement2() {
+        let _node = parse(Rule::def_statement, "DEF FNP = 3.14159");
+    }
+
+    #[test]
+    fn def_statement3() {
+        let _node = parse(Rule::def_statement, "DEF FNA(X) = A*X + B");
+    }
+
+    #[test]
+    fn goto() {
+        let _node = parse(Rule::goto_statement, "GOTO 999");
+        let _node = parse(Rule::goto_statement, "GO TO 999");
+    }  
+
+    #[test]    
+    fn gosub() {
+        let _node = parse(Rule::gosub_statement, "GOSUB 22");
+        let _node = parse(Rule::gosub_statement, "GO SUB 22");
+    }
+
+    #[test]    
+    fn if1() {
+        let _node = parse(Rule::if_then_statement, "IF X > Y+83 THEN 200");
+    }
+
+    #[test]    
+    fn if2() {
+        let _node = parse(Rule::if_then_statement, "IF A$ <> B$ THEN 550");
+    }
+
+    #[test]    
+    fn on_goto() {
+        let _node = parse(Rule::on_goto_statement, "ON L+1 GO TO 300,400,500");
+    }
+
+    #[test]    
+    fn print() {
+        let _node = parse(Rule::print_statement, r#"PRINT X"#);
+        let _node = parse(Rule::print_statement, r#"PRINT X; (X+Z)/2"#);
+        let _node = parse(Rule::print_statement, r#"PRINT"#);
+        let _node = parse(Rule::print_statement, r#"PRINT TAB(10); A$; "IS DONE.""#);
+        let _node = parse(Rule::print_statement, r#"PRINT "X EQUALS", 10"#);
+        let _node = parse(Rule::print_statement, r#"PRINT X, Y"#);
+        let _node = parse(Rule::print_statement, r#"PRINT ,,,X"#);
+    }
+
+    #[test]    
+    fn input() {
+        let _node = parse(Rule::input_statement, "INPUT X");
+        let _node = parse(Rule::input_statement, "INPUT X, A$, Y(2)");
+        let _node = parse(Rule::input_statement, "INPUT A, B, C");
+    }
+
+    #[test]    
+    fn read() {
+        let _node = parse(Rule::read_statement, "READ X");
+        let _node = parse(Rule::read_statement, "READ X, Y, Z");
+        let _node = parse(Rule::read_statement, "READ X(1), A$, C");
+    }
+
+    #[test]
+    fn data() {
+        let _node = parse(Rule::data_statement, r#"DATA 3.14159, PI, 5E-10, ",""#);
+    }
+
+    #[test]
+    fn unquoted_string() {
+        let _node = parse(Rule::unquoted_string, "DATA");
+        let _node = parse(Rule::unquoted_string, "DA TA");
+        let _node = parse(Rule::unquoted_string, "3.14159");
+    }
+
+    #[test]
+    fn dimension() {
+        let _node = parse(Rule::dimension_statement, "DIM A (6), B(10,10)");
+        let _node = parse(Rule::dimension_statement, "DIM A(6,2)");
     }
 
     //
@@ -139,7 +249,7 @@ mod tests {
                 let node = nodes.single().unwrap();
                 assert_eq!(node.as_rule(), rule);
                 if node.as_str() != input {
-                    println!("Expected rule({:?}) to fully consume '{}'", rule, input);
+                    println!("Expected rule({:?}) to fully consume '{}' but only matched '{}'", rule, input, node.as_str());
                     print_node(node);
                     panic!("Failed test");
                 }

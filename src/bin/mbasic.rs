@@ -6,6 +6,8 @@ use mini_basic::{parse_file, ParseOptions};
 use std::path::Path;
 use walkdir::WalkDir;
 use std::time::Instant;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 
 use clap::Clap;
@@ -26,6 +28,9 @@ struct Opts {
     #[clap(short,long)]
     verbose: bool,
 
+    #[clap(long)]
+    nbs: bool,
+
     // Pretty print the parse tree
     #[clap(short,long)]
     pretty: bool,  
@@ -40,6 +45,14 @@ pub fn match_ext<P: AsRef<Path>>(path: &P, extensions: &[&str]) -> bool {
         }
     }
     false
+}
+
+fn first_line<P: AsRef<Path>>(path: &P) -> Result<String, Box<dyn std::error::Error>>
+where P: AsRef<Path>, {
+    let file = File::open(path)?;
+    let mut line =String::new();
+    let _ = BufReader::new(file).read_line(&mut line)?;
+    Ok(line.trim().to_owned())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Batch load of MIBs
         let mut parsed_ok = 0;
         let mut parse_failed = 0;
+        let mut failed_expectation = 0;
 
         // Extensions we care about
         let extensions = vec!["bas", "basic"];
@@ -69,23 +83,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  .filter_map(|e| e.ok())
                  .filter(|e| e.file_type().is_file())
                  .map(|e| e.into_path()) // Dir entries keep a file lock, so consume them into paths
-                 .filter(|p| match_ext(p, &extensions)) { 
+                 .filter(|p| match_ext(p, &extensions)) {
+            
+            let mut expect_error = false;
+
+            if opts.nbs {
+                // Peek first line and only run test is the word "error" is not present!
+                match first_line(&path) {
+                    Ok(line) => {
+                        if opts.verbose {
+                            println!("NBS: {}",line);
+                        }
+
+                        if line.contains("ERROR") {
+                            if opts.verbose {
+                                println!("Expecting error for NBS: {}", line);
+                            }
+                            expect_error = true;
+                        }
+                        else
+                        {
+
+                        }
+                    }
+                    Err(e) => { 
+                        error!("NBS file error: {}", e);
+                        continue;
+                    }
+                }
+            }
+
             match parse_file(&path, &options) {
                 Ok(_info) => {
+                    if expect_error {
+                        error!("Parse succeeded for {} which was not expected", path.display());
+                        failed_expectation += 1;
+                    }
                     parsed_ok += 1;
                     if opts.verbose {
                         println!("Parsed {}", path.display());
                     }
                 },
                 Err(e) => {
+                    if !expect_error {
+                        failed_expectation += 1;
+                        error!("Parse failed for {}", path.display());
+                    }
                     parse_failed += 1;
-                    error!("Parsed failed for {}", path.display());
                     if opts.verbose {
-                        println!("{}", e)
+                        println!("{}: {}", path.display() ,e)
                     }
                 }
             }
         }
+
+        if opts.nbs {
+            println!("{} files failed expected result", failed_expectation);
+        }
+
         println!("{} files parsed, {} files failed to parse in {}ms", parsed_ok, parse_failed, now.elapsed().as_millis());
     } else {
         trace!("Parsing {}", path.display());
