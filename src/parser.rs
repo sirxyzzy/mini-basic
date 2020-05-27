@@ -82,7 +82,10 @@ fn print_nodes(nodes: Nodes, level: usize) {
 }
 
 fn print_single_node(node: &Node) {
-    println!("<<{:?}>>", node.as_rule())
+    match node.as_rule() {
+        Rule::line => println!("<<{:?}>> {}", node.as_rule(), node.as_str().to_owned().trim()),
+        _ => println!("<<{:?}>>", node.as_rule())
+    }   
 }
 
 #[cfg(test)]
@@ -120,6 +123,11 @@ mod tests {
         let source = r#"10 REM This is a simple program
 "#;
         parse_fail(Rule::program, source);
+    }
+
+    #[test]
+    fn numeric_let1() {
+        let node = parse(Rule::numeric_let_statement, "LET S=SQR(N)");
     }
 
     //

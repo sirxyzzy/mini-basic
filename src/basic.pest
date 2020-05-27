@@ -41,7 +41,12 @@ gosub_statement = { "GOSUB" ~ suffix }
 goto_statement = { "GOTO" ~ suffix }
 if_then_statement = { "IF" ~ suffix }
 input_statement = { "INPUT" ~ suffix }
-let_statement = { "LET" ~ suffix }
+
+// let
+let_statement = { numeric_let_statement | string_let_statement }
+numeric_let_statement   = { "LET" ~ ws ~ numeric_variable ~ ws ~ "=" ~ ws ~ numeric_expression }
+string_let_statement = { "LET" ~ ws ~ string_variable  ~ ws ~ "=" ~ ws ~ string_expression }
+
 on_goto_statement = { "ON" ~ suffix }
 option_statement = { "OPTION" ~ suffix }
 print_statement = { "PRINT" ~ suffix }
@@ -61,7 +66,6 @@ fraction = @{ "." | ASCII_DIGIT+ }
 exrad = @{ "E" ~ sign? ~ integer }
 string_constant = { quoted_string }
 
-
 variable = { string_variable | numeric_variable }
 numeric_variable = { numeric_array_element | simple_numeric_variable }
 simple_numeric_variable = @{ letter ~ ASCII_DIGIT? }
@@ -76,9 +80,10 @@ numeric_expression = { sign? ~ term ~ (sign ~ term)* }
 term = { factor ~ (ws ~ multiplier ~ factor)* }
 factor = { primary ~ (ws ~ "^" ~ primary)* }
 multiplier = { "*" | "/" }
-primary = { numeric_variable 
-  | numeric_rep 
+primary = {  
+    numeric_rep 
   | numeric_function_ref 
+  | numeric_variable
   | ( "(" ~ ws ~ numeric_expression ~ ws ~ ")" ) }
 numeric_function_ref  = { numeric_function_name ~ argument_list? }
 numeric_function_name = { numeric_defined_function | numeric_supplied_function }
