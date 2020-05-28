@@ -59,6 +59,10 @@ impl BasicParser {
     fn end_statement(node: Node) -> Result<()> {
         Ok(())
     }
+
+    fn numeric_rep(node: Node) -> Result<f64> {
+        node.as_str().parse::<f64>().map_err(|e| node.error(e))
+    }
 }
 
 //
@@ -82,10 +86,14 @@ fn print_nodes(nodes: Nodes, level: usize) {
 }
 
 fn print_single_node(node: &Node) {
-    match node.as_rule() {
-        Rule::line => println!("<<{:?}>> {}", node.as_rule(), node.as_str().to_owned().trim()),
-        _ => println!("<<{:?}>>", node.as_rule())
-    }   
+    let text = node.as_str().to_owned().trim().to_owned();
+    let rule = node.as_rule();
+
+    if text.len() < 32 {
+        println!("<{:?}> {}", rule, text)
+    } else {
+        println!("<{:?}> ...", rule)
+    }  
 }
 
 #[cfg(test)]
@@ -150,10 +158,6 @@ mod tests {
         let _node = parse(Rule::string_let_statement, "LET A$ = B$");
     }
 
-    #[test]
-    fn numeric_rep() {
-        let _node = parse(Rule::numeric_rep, "3.14159");
-    }
 
     #[test]
     fn def_statement1() {
@@ -239,6 +243,57 @@ mod tests {
         let _node = parse(Rule::dimension_statement, "DIM A (6), B(10,10)");
         let _node = parse(Rule::dimension_statement, "DIM A(6,2)");
     }
+
+    #[test]
+    fn line_number() {
+        let _node = parse(Rule::line_number, "1 ");
+        let _node = parse(Rule::line_number, "10 ");
+        let _node = parse(Rule::line_number, "123 ");
+        let _node = parse(Rule::line_number, "1234 ");
+    }
+
+
+    #[test]
+    fn numeric_expression() {     
+        num_exp("1");
+        num_exp("-1");
+        num_exp("1 * 2");
+        num_exp("1 * (-2)");
+        num_exp("1 + 2 + 3 + 4 + 5 + 6");
+        num_exp("1 + (2 + (3 + (4 + (5 + 6))))");
+        num_exp("1 - 2 * 3 + 4 / 5 ^ 2");
+
+        num_exp("1");
+        num_exp(".2");
+        num_exp("1.2");
+        num_exp("1.2E-3");
+    }
+
+    #[test]
+    fn numeric_rep() {
+        num_rep("1", 1.0);
+        num_rep("1.2", 1.2);
+        num_rep(".1", 0.1);
+        num_rep("2.345", 2.345);
+        num_rep("3.14159", 3.14159);
+        num_rep("122E+14", 122E+14);
+    }
+
+    fn num_rep(input: &str, expected: f64) {
+        let node = parse(Rule::numeric_rep, input);
+        let value = BasicParser::numeric_rep(node).unwrap();
+        assert_eq!(value, expected)
+    }
+
+    fn num_exp(input: &str) {
+        let node = parse(Rule::numeric_expression, input);
+        print_node(node)
+    }
+ 
+    #[test]
+    fn line_number_fail() {
+        parse_fail(Rule::line_number, "12345 ");
+    }   
 
     //
     // test helpers
