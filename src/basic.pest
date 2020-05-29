@@ -6,7 +6,7 @@ digit = {ASCII_DIGIT}
 quote = { "\"" }
 plain_string_character = { "+" | "-" | "." | digit | letter }
 unquoted_string = @{ plain_string_character+ ~ ( " "+ ~ plain_string_character+)* }
-quoted_string = @{ quote ~ (!(quote | NEWLINE) ~ ANY)* ~ quote}
+quoted_string = @{ quote ~ (!(quote | NEWLINE) ~ ANY)* ~ quote }
 
 program = ${ block ~ end_line }
 block = ${ (line | for_block)* }
