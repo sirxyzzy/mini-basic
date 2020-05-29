@@ -6,7 +6,6 @@ struct BasicParser;
 
 use super::ParseResult;
 use super::ParseOptions;
-use super::interpret::{AstBuilder, print_ast};
 use super::pesthelpers::*;
 
 pub type Pair<'i> = pest::iterators::Pair<'i, Rule>;
@@ -26,6 +25,7 @@ pub fn parse_source<'i>(source: &'i str, options: &ParseOptions) -> ParseResult<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{AstBuilder, print_ast};
 
     #[test]
     fn program1() {

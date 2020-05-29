@@ -11,10 +11,10 @@ use std::path::Path;
 use std::fs;
 
 mod parser;
-mod interpret;
+mod ast;
 mod pesthelpers;
 
-use interpret::{ AstBuilder, AstNode };
+use ast::AstBuilder;
 
 type ParseResult<T> = std::result::Result<T, ParseError>;
 
