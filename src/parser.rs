@@ -206,8 +206,8 @@ mod tests {
     fn variable_names_num()
     {
         for id in 0..(26*11) {
-            let name = crate::ast::id_to_num_name(id);
-            let j = crate::ast::num_name_to_id(&name);
+            let name = crate::vars::id_to_num_name(id);
+            let j = crate::vars::num_name_to_id(&name);
             println!("{} -> {} -> {}", id, name, j );
             assert_eq!(id, j, "Difference for {}", name);
         }
@@ -217,8 +217,8 @@ mod tests {
     fn variable_names_string()
     {
         for id in 0..26 {
-            let name = crate::ast::id_to_string_name(id);
-            let j = crate::ast::string_name_to_id(&name);
+            let name = crate::vars::id_to_string_name(id);
+            let j = crate::vars::string_name_to_id(&name);
             println!("{} -> {} -> {}", id, name, j );
             assert_eq!(id, j, "Difference for {}", name);
         }
@@ -228,8 +228,8 @@ mod tests {
     fn variable_names_array()
     {
         for id in 0..26 {
-            let name = crate::ast::id_to_array_name(id);
-            let j = crate::ast::array_name_to_id(&name);
+            let name = crate::vars::id_to_array_name(id);
+            let j = crate::vars::array_name_to_id(&name);
             println!("{} -> {} -> {}", id, name, j );
             assert_eq!(id, j, "Difference for {}", name);
         }

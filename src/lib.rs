@@ -10,6 +10,7 @@ extern crate thiserror;
 
 mod parser;
 mod ast;
+mod vars;
 
 use thiserror::Error;
 use std::path::Path;
