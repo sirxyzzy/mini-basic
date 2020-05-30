@@ -24,7 +24,7 @@ pub enum AstNode {
     LetStatement{ line: u16, var: Box<AstNode>, val: Box<AstNode> },
     OnGotoStatement{ line: u16 },
     OptionStatement{ line: u16 },
-    PrintStatement{ line: u16 },
+    PrintStatement{ line: u16, items: Vec<AstNode> },
     RandomizeStatement{ line: u16 },
     ReadStatement{ line: u16 },
     RemarkStatement{ line: u16 },
@@ -47,6 +47,11 @@ pub enum AstNode {
     },
 
     Op (OpCode),
+
+    // Print gorp
+    PrintSemi,
+    PrintComma,
+    TabCall (Box<AstNode>),
 
     NumVal (f64),
 
@@ -191,7 +196,7 @@ pub fn print_ast(node: &AstNode) {
 }
 
 fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
-    print!("{:indent$}{}: ", "", label, indent=level*2);
+    print!("{:indent$}{} ", "", label, indent=level*2);
     match node {
         AstNode::BinOp{op, left, right} => {
             println!("{:?}", op);
@@ -213,21 +218,21 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         AstNode::NumRef(id) =>  println!("{}", vars::id_to_num_name(*id)),
         AstNode::StringRef(id) =>  println!("{}", vars::id_to_string_name(*id)),
         AstNode::ArrayRef1{id, index} => {
-            println!("{}[]", vars::id_to_array_name(*id));
-            print_ast_helper("index", index, level+1);             
+            println!("{}[..]", vars::id_to_array_name(*id));
+            print_ast_helper("", index, level+1);             
         }
 
         AstNode::ArrayRef2{id, index1, index2} => {
-            println!("{}[,]", vars::id_to_array_name(*id));
-            print_ast_helper("index1", index1, level+1);
-            print_ast_helper("index2", index2, level+1);                 
+            println!("{}[..,..]", vars::id_to_array_name(*id));
+            print_ast_helper("", index1, level+1);
+            print_ast_helper("", index2, level+1);                 
         }
 
         AstNode::Program{lines} => {
             println!("Program");
 
             for line in lines.iter() {
-                print_ast_helper(&format!("{}", line.0), line.1, level+1);
+                print_ast_helper(&format!("{:4}", line.0), line.1, level+1);
             }
         }
 
@@ -241,18 +246,32 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         },
 
         AstNode::NextStatement{id, for_line, ..} => 
-            println!("NEXT {} ({})", vars::id_to_num_name(*id), for_line),
+            println!("NEXT {} ->{}", vars::id_to_num_name(*id), for_line),
 
         AstNode::LetStatement{var, val, ..} => {
             println!("LET");
-            print_ast_helper("var", var, level+1);
+            print_ast_helper("     ", var, level+1);
             print_ast_helper("value", val, level+1);
         },
 
         AstNode::IfThenStatement{expr, then, ..} => {
             println!("IF THEN {}", then);
-            print_ast_helper("expr", expr, level+1);    
+            print_ast_helper("", expr, level+1);    
         }
+
+        AstNode::PrintStatement{items, ..} => {
+            println!("PRINT");
+            for item in items.iter() {
+                print_ast_helper("", item, level+1);
+            }
+        }
+
+        AstNode::RemarkStatement{..} => println!("REM ..."),
+        AstNode::RandomizeStatement{..} => println!("RANDOMIZE"),
+        AstNode::RestoreStatement{..} => println!("RESTORE"),
+        AstNode::ReturnStatement{..} => println!("RETURN"),
+        AstNode::StopStatement{..} => println!("STOP"),
+        AstNode::EndStatement{..} => println!("END"),
 
         _ => println!("{:?}", node) 
     }
@@ -404,7 +423,7 @@ impl AstBuilder {
             Rule::let_statement => Self::let_statement( p,line),
             Rule::on_goto_statement => Ok(AstNode::OnGotoStatement{line}),
             Rule::option_statement => Ok(AstNode::OptionStatement{line}),
-            Rule::print_statement => Ok(AstNode::PrintStatement{line}),
+            Rule::print_statement => Self::print_statement( p,line),
             Rule::randomize_statement => Ok(AstNode::RandomizeStatement{line}),
             Rule::read_statement => Ok(AstNode::ReadStatement{line}),
             Rule::remark_statement => Ok(AstNode::RemarkStatement{line}),
@@ -412,6 +431,60 @@ impl AstBuilder {
             Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
             Rule::stop_statement => Ok(AstNode::StopStatement{line}),
             _ => panic!("Not a statement, we should never reach here!")
+        }
+    }
+
+    // print_statement = { ("PRINT " ~ print_list) | "PRINT" }
+    fn print_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        match pair.into_inner().peek() {
+            None => Ok(AstNode::PrintStatement{line, items: Vec::new()}),
+            Some(child) => {
+                let items = Self::print_list(child)?;
+                Ok(AstNode::PrintStatement{line, items})
+            }
+        }
+    }
+
+    // print_list = { (print_item? ~ print_separator)* ~ print_item? }
+    fn print_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
+        let mut print_items: Vec<AstNode> = Vec::new();
+        for p in pair.into_inner() {
+            match p.as_rule() {
+                Rule::print_item => print_items.push(Self::print_item(p)?),
+                Rule::print_separator => print_items.push(Self::print_separator(p)?),
+                _ => return Err(ParseError::unexpected("print item", &p))
+            }
+        }
+
+        Ok(print_items)
+    }
+
+    fn print_separator(pair: Pair) -> ParseResult<AstNode> {
+        match pair.as_str() {
+            "," => Ok(AstNode::PrintComma),
+            ";" => Ok(AstNode::PrintSemi),
+            _ => Err(ParseError::unexpected("print separator", &pair))
+        }
+    }
+
+    // print_item = { tab_call | expression }
+    fn print_item(pair: Pair) -> ParseResult<AstNode> {
+        let p = first_child(pair);
+
+        match p.as_rule() {
+            Rule::tab_call => Ok(Self::tab_call(p)?),
+            Rule::expression => Ok(Self::expression(p)?),
+            _ => Err(ParseError::unexpected("print separator", &p))
+        }
+    }
+
+    // tab_call = { "TAB" ~ "(" ~ numeric_expression ~ ")" }
+    fn tab_call(pair: Pair) -> ParseResult<AstNode> {
+        let p = first_child(pair);
+
+        match p.as_rule() {
+            Rule::numeric_expression => Ok(Self::numeric_expression(p)?),
+            _ => Err(ParseError::unexpected("tab_call", &p))
         }
     }
 
