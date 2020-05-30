@@ -134,9 +134,5 @@ for_block = { for_line ~ for_body }
 for_body = { block ~ next_line }
 for_line = !{ line_number ~ for_statement ~ end_of_line }
 next_line = !{ line_number ~ next_statement ~ end_of_line }
-for_statement = { "FOR" ~ control_variable ~  "=" ~ initial_value ~ "TO" ~ limit ~ ( "STEP" ~ increment)?  }
-control_variable = { simple_numeric_variable }
-initial_value = { numeric_expression }
-limit = { numeric_expression }
-increment = { numeric_expression }
-next_statement = { "NEXT" ~ control_variable }
+for_statement = { "FOR" ~ simple_numeric_variable ~  "=" ~ numeric_expression  ~ "TO" ~ numeric_expression ~ ( "STEP" ~ numeric_expression)?  }
+next_statement = { "NEXT" ~ simple_numeric_variable }

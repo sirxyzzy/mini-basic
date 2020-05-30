@@ -2,6 +2,7 @@ use super::parser::{ Pair, Rule};
 use super::*;
 use std::error::Error;
 use std::collections::BTreeMap;
+use std::fmt;
 
 
 // Since the tree is immutable, we can build it with refs
@@ -18,7 +19,7 @@ pub enum AstNode {
     GotoStatement{ line: u16 },
     IfThenStatement{ line: u16 },
     InputStatement{ line: u16 },
-    LetStatement{ line: u16 },
+    LetStatement{ line: u16, var: Box<AstNode>, val: Box<AstNode> },
     OnGotoStatement{ line: u16 },
     OptionStatement{ line: u16 },
     PrintStatement{ line: u16 },
@@ -28,8 +29,8 @@ pub enum AstNode {
     RestoreStatement{ line: u16 },
     ReturnStatement{ line: u16 },
     StopStatement{ line: u16 },
-    ForStatement{ line: u16 },
-    NextStatement{ line: u16 },
+    ForStatement{ line: u16, id: usize, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>},
+    NextStatement{ line: u16, id: usize, for_line: u16},
     EndStatement{ line: u16 },
 
     BinOp {
@@ -91,6 +92,68 @@ pub enum OpCode {
     Def (String)
 }
 
+mod Variable {
+    fn id_to_char(id: usize) -> char {
+        assert!(id < 26, format!("Index {} out of range 0..26", id));
+        ((id as u8) + b'A') as char
+    }
+    
+    pub fn id_to_array_name(id: usize) -> String {
+        format!("{}", id_to_char(id))
+    }
+    
+    pub fn array_name_to_id(name: &str) -> usize {
+        let bytes = name.as_bytes();
+    
+        assert_eq!(bytes.len(), 1);
+    
+        let id = (bytes[0] - b'A') as usize;
+        debug_assert!(id < 26, "Failed to get valid index for array variable {}", id);
+    
+        id
+    }
+    
+    pub fn id_to_string_name(id: usize) -> String {
+        format!("{}$", id_to_char(id))
+    }
+    
+    pub fn string_name_to_id(name: &str) -> usize {
+        let bytes = name.as_bytes();
+    
+        assert_eq!(bytes.len(), 2);
+        assert_eq!(bytes[1], b'$');
+    
+        let id = (bytes[0] - b'A') as usize;
+        debug_assert!(id < 26, "Failed to get valid index for string variable {}", id);
+    
+        id
+    }
+    
+    pub fn id_to_num_name(id: usize) -> String {
+        assert!(id < (26 * 11), "Number id out of range {}", 26 * 11);
+        match id < 26 {
+            true => format!("{}", id_to_char(id)), // A..Z
+            _ => format!("{}{}", id_to_char((id - 26) / 10), ((id - 26) % 10)) // A0.. Z9
+        }
+    }
+    
+    pub fn num_name_to_id(name: &str) -> usize {
+        let bytes = name.as_bytes();
+    
+        assert!(bytes.len() >= 1, "Number name {} must be at least one byte long", name);
+    
+        let mut id = (bytes[0] - b'A') as usize;
+    
+        if bytes.len() > 1 {
+            id = 26 + (id * 10) + ((bytes[1] - b'0') as usize);
+        }
+    
+        debug_assert!(id < 26 * 11, "Failed to get valid index for numeric variable {}", id);
+    
+        id
+    }
+}
+
 impl OpCode {
     fn from_pair(pair: Pair) -> Option<OpCode> {
         match pair.as_rule() {
@@ -147,108 +210,62 @@ pub fn statement_line_number(node: &AstNode) -> Option<u16> {
     }
 }
 
-
 pub fn print_ast(node: &AstNode) {
-    println!("AST...");
-    print_ast_helper(node, 0);
+    print_ast_helper("AST", node, 0);
 }
 
-fn print_ast_helper(node: &AstNode, level:usize) {
-    print!("{:indent$}", "", indent=level*2);
+fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
+    print!("{:indent$}{}: ", "", label, indent=level*2);
     match node {
         AstNode::BinOp{op, left, right} => {
             println!("{:?}", op);
-            print_ast_helper(left, level+1);
-            print_ast_helper(right, level+1);
+            print_ast_helper(" left",left, level+1);
+            print_ast_helper("right", right, level+1);
         }
         AstNode::MonOp{op, arg} => {
             println!("{:?}", op);
-            print_ast_helper(arg, level+1);            
+            print_ast_helper("Arg", arg, level+1);            
         }
         AstNode::Op(op) => {
             println!("{:?}", op);   
         }
         AstNode::NumVal(x) => println!("{}", x),
         AstNode::StringVal(s) => println!("'{}'", s),
-        AstNode::NumRef(id) =>  println!("{}", id_to_num_name(*id)),
-        AstNode::StringRef(id) =>  println!("{}", id_to_string_name(*id)),
+        AstNode::NumRef(id) =>  println!("{}", Variable::id_to_num_name(*id)),
+        AstNode::StringRef(id) =>  println!("{}", Variable::id_to_string_name(*id)),
         AstNode::ArrayRef1{id, index} => {
-            println!("{}[]", id_to_array_name(*id));
-            print_ast_helper(&index, level+1);             
+            println!("{}[]", Variable::id_to_array_name(*id));
+            print_ast_helper("index", index, level+1);             
         }
         AstNode::ArrayRef2{id, index1, index2} => {
-            println!("{}[,]", id_to_array_name(*id));
-            print_ast_helper(&index1, level+1);
-            print_ast_helper(&index2, level+1);                 
+            println!("{}[,]", Variable::id_to_array_name(*id));
+            print_ast_helper("index1", index1, level+1);
+            print_ast_helper("index2", index2, level+1);                 
         }
         AstNode::Program{lines} => {
             for line in lines.iter() {
-                print_ast_helper(line.1, level+1);
+                print_ast_helper("", line.1, level+1);
             }
+        }
+        AstNode::ForStatement{line, id, from, to, step} => {
+            println!("{} FOR {}", line, Variable::id_to_num_name(*id));
+            print_ast_helper("from", from, level+1);
+            print_ast_helper("  to", to, level+1);
+            if let Some(step) =  step {
+                print_ast_helper("step", step, level+1);
+            }
+        },
+        AstNode::NextStatement{line , id, for_line} => 
+            println!("{} NEXT {} ({})", line, Variable::id_to_num_name(*id), for_line),
+
+        AstNode::LetStatement{line, var, val} => {
+            println!("{} LET", line);
+            print_ast_helper("var", var, level+1);
+            print_ast_helper("value", val, level+1);
         }
 
         _ => println!("{:?}", node) 
     }
-}
-
-fn id_to_char(id: usize) -> char {
-    assert!(id < 26, format!("Index {} out of range 0..26", id));
-    ((id as u8) + b'A') as char
-}
-
-pub fn id_to_array_name(id: usize) -> String {
-    format!("{}", id_to_char(id))
-}
-
-pub fn array_name_to_id(name: &str) -> usize {
-    let bytes = name.as_bytes();
-
-    assert_eq!(bytes.len(), 1);
-
-    let id = (bytes[0] - b'A') as usize;
-    debug_assert!(id < 26, "Failed to get valid index for array variable {}", id);
-
-    id
-}
-
-pub fn id_to_string_name(id: usize) -> String {
-    format!("{}$", id_to_char(id))
-}
-
-pub fn string_name_to_id(name: &str) -> usize {
-    let bytes = name.as_bytes();
-
-    assert_eq!(bytes.len(), 2);
-    assert_eq!(bytes[1], b'$');
-
-    let id = (bytes[0] - b'A') as usize;
-    debug_assert!(id < 26, "Failed to get valid index for string variable {}", id);
-
-    id
-}
-
-pub fn id_to_num_name(id: usize) -> String {
-    assert!(id < (26 * 11), "Number id out of range {}", 26 * 11);
-    match id < 26 {
-        true => format!("{}", id_to_char(id)), // A..Z
-        _ => format!("{}{}", id_to_char((id - 26) / 10), ((id - 26) % 10)) // A0.. Z9
-    }
-}
-
-pub fn num_name_to_id(name: &str) -> usize {
-    let bytes = name.as_bytes();
-
-    assert!(bytes.len() >= 1, "Number name {} must be at least one byte long", name);
-
-    let mut id = (bytes[0] - b'A') as usize;
-
-    if bytes.len() > 1 {
-        id = 26 + (id * 10) + ((bytes[1] - b'0') as usize);
-    }
-
-    debug_assert!(id < 26 * 11, "Failed to get valid index for numeric variable {}", id);
-
-    id
 }
 
 pub struct AstBuilder {
@@ -256,7 +273,7 @@ pub struct AstBuilder {
 }
 
 impl ParseError {
-    fn from_error<E: Error>(error: E, pair: Pair) -> ParseError {
+    fn from_error<E: Error>(error: E, pair: &Pair) -> ParseError {
         let span = pair.as_span();
         ParseError::AstError{
             reason: error.to_string(),
@@ -266,39 +283,42 @@ impl ParseError {
         }
     }
 
-    fn unexpected(pair: Pair) -> ParseError {
+    fn new(reason: &str, pair: &Pair) -> ParseError {
         let span = pair.as_span();
         ParseError::AstError{
-            reason: format!("Unexpected rule {:?}", pair.as_rule()),
+            reason: format!("{} {:?}", reason, pair.as_rule()),
             rule_type: pair.as_rule(),
             start_pos: span.start_pos().pos(),
             end_pos: span.end_pos().pos(),
         }
     }
 
-    fn expected(thing: &str, pair: Pair) -> ParseError {
-        let span = pair.as_span();
-        ParseError::AstError{
-            reason: format!("Expected {} in {:?}", thing, pair.as_rule()),
-            rule_type: pair.as_rule(),
-            start_pos: span.start_pos().pos(),
-            end_pos: span.end_pos().pos(),
-        }
+    fn unexpected(context: &str, pair: &Pair) -> ParseError {
+        Self::new(&format!("In {}, unexpected rule", context), pair)
     }
 
-    fn not_implemented(pair: Pair) -> ParseError {
-        let span = pair.as_span();
-        ParseError::AstError{
-            reason: format!("<{:?}> is not implemented", pair.as_rule()),
-            rule_type: pair.as_rule(),
-            start_pos: span.start_pos().pos(),
-            end_pos: span.end_pos().pos(),
-        }
+    fn expected(thing: &str, pair: &Pair) -> ParseError {
+        Self::new(&format!("Expected {} in", thing), pair)
+    }
+
+    fn not_implemented(pair: &Pair) -> ParseError {
+        Self::new("Not implemented", pair)
     }
 }
 
-pub fn first_child<'i>(pair: Pair<'i>) -> Pair<'i> {
-    pair.into_inner().peek().unwrap()
+pub fn first_child<'i>(pair: Pair<'i>) -> Pair<'i>{
+    let rule = pair.as_rule();
+    pair.into_inner().peek().expect(&format!("Expected first child in {:?}", rule))
+}
+
+pub fn first_two_children<'i>(pair: Pair<'i>) -> (Pair<'i>, Pair<'i>) {
+    let rule = pair.as_rule();
+    let mut pairs = pair.into_inner();
+    
+    let c1 = pairs.next().expect(&format!("Expected first child in {:?}", rule));
+    let c2 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
+
+    (c1,c2)
 }
 
 pub fn assert_rule(pair: &Pair, expected: Rule) {
@@ -341,7 +361,7 @@ impl AstBuilder {
             match p.as_rule() {
                 Rule::line => lines.push(Self::line(p)?),
                 Rule::for_block => lines.append(&mut Self::for_block(p)?),
-                _ => return Err(ParseError::unexpected(p))
+                _ => return Err(ParseError::unexpected("block", &p))
             }
         }
         Ok(lines)
@@ -349,21 +369,148 @@ impl AstBuilder {
     
     // line = !{ line_number ~ statement ~ end_of_line }
     pub fn line(pair: Pair) -> ParseResult<AstNode> {
-        let line = Self::line_number(first_child(pair))?;
-        Ok(AstNode::RemarkStatement{line}) // IMPROVE ME!
+        let mut pairs = pair.into_inner();
+        let line = Self::line_number(pairs.next().unwrap())?;
+        let statement = Self::statement(pairs.next().unwrap(), line)?;
+        Ok(statement)
     }
 
-    pub fn for_block(_pair: Pair) -> ParseResult<Vec<AstNode>> {
+    //
+    // Statements have a single child, the parse tree for a particular statement
+    //
+    pub fn statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let p = first_child(pair);
+        match p.as_rule() {
+            Rule::data_statement => Ok(AstNode::DataStatement{line}),
+            Rule::def_statement => Ok(AstNode::DefStatement{line}),
+            Rule::dimension_statement => Ok(AstNode::DimensionStatement{line}),
+            Rule::gosub_statement => Ok(AstNode::GosubStatement{line}),
+            Rule::goto_statement => Ok(AstNode::GotoStatement{line}),
+            Rule::if_then_statement => Ok(AstNode::IfThenStatement{line}),
+            Rule::input_statement => Ok(AstNode::InputStatement{line}),
+            Rule::let_statement => Self::let_statement( p,line),
+            Rule::on_goto_statement => Ok(AstNode::OnGotoStatement{line}),
+            Rule::option_statement => Ok(AstNode::OptionStatement{line}),
+            Rule::print_statement => Ok(AstNode::PrintStatement{line}),
+            Rule::randomize_statement => Ok(AstNode::RandomizeStatement{line}),
+            Rule::read_statement => Ok(AstNode::ReadStatement{line}),
+            Rule::remark_statement => Ok(AstNode::RemarkStatement{line}),
+            Rule::restore_statement => Ok(AstNode::RestoreStatement{line}),
+            Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
+            Rule::stop_statement => Ok(AstNode::StopStatement{line}),
+            _ => panic!("Not a statement, we should never reach here!")
+        }
+    }
+
+    // let_statement = { numeric_let_statement | string_let_statement }
+    // numeric_let_statement   = { "LET " ~ numeric_variable ~ "=" ~ numeric_expression }
+    // string_let_statement = { "LET " ~ string_variable  ~ "=" ~ string_expression }
+    fn let_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let p = first_child(pair);
+        match p.as_rule() {
+            Rule::numeric_let_statement => {
+                let (var_pair, expression_pair) = first_two_children(p);
+                let var = Box::new(Self::numeric_variable(var_pair)?);
+                let val = Box::new(Self::numeric_expression(expression_pair)?);
+                Ok(AstNode::LetStatement{line, var, val})
+            }
+            Rule::string_let_statement => {
+                let (var_pair, expression_pair) = first_two_children(p);
+                let var = Box::new(Self::string_variable(var_pair)?);
+                let val = Box::new(Self::string_expression(expression_pair)?);
+                Ok(AstNode::LetStatement{line, var, val})
+            },
+            _ => Err(ParseError::unexpected("let", &p))
+        }
+    }
+
+    //
+    // for
+    //
+    // Gets a bit complicated as I have a highly structured parse tree,
+    // but want a flattened AST (a vec of lines)
+    //
+
+    // for_block = { for_line ~ for_body }
+    pub fn for_block(pair: Pair) -> ParseResult<Vec<AstNode>> {
         let mut lines: Vec<AstNode> = Vec::new();
-        lines.push(AstNode::RemarkStatement{line:10});
-        lines.push(AstNode::RemarkStatement{line:11});
-        lines.push(AstNode::RemarkStatement{line:12});
-        Ok(lines) // IMPROVE ME!
+
+        let mut pairs = pair.into_inner();
+        let for_line = Self::for_line(pairs.next().unwrap())?;
+
+        match for_line {
+            AstNode::ForStatement{line, id,..} => {
+                let mut body_lines = Self::for_body(pairs.next().unwrap(), line, id)?;
+                lines.push(for_line);
+                lines.append(&mut body_lines);
+                Ok(lines)
+            },
+            _ => panic!("Only possibility is a for statement!")
+        }
+    }
+
+    // for_line = !{ line_number ~ for_statement ~ end_of_line }
+    pub fn for_line(pair: Pair) -> ParseResult<AstNode> {
+        let mut pairs = pair.into_inner();
+
+        let line = Self::line_number(pairs.next().unwrap())?;
+
+        Self::for_statement(pairs.next().unwrap(), line)
+    }
+
+    // for_statement = { "FOR" ~ simple_numeric_variable ~  "=" ~ numeric_expression  ~ "TO" ~ numeric_expression ~ ( "STEP" ~ numeric_expression)?  }
+    pub fn for_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let mut pairs = pair.into_inner();
+
+        let id = Variable::num_name_to_id(pairs.next().unwrap().as_str());
+        
+        let from = Box::new(Self::numeric_expression(pairs.next().unwrap())?);
+        let to = Box::new(Self::numeric_expression(pairs.next().unwrap())?);
+
+        let step = match pairs.next() {
+            Some(p) => Some(Box::new(Self::numeric_expression(p)?)),
+            None => None
+        };
+
+        Ok(AstNode::ForStatement{line, id, from, to, step})
+    }
+
+    // for_body { block ~ next_line }
+    pub fn for_body(pair: Pair, for_line: u16, id: usize) -> ParseResult<Vec<AstNode>> {
+        let mut pairs = pair.into_inner();
+
+        let mut lines = Self::block(pairs.next().unwrap())?;
+
+        let next_line = Self::next_line(pairs.next().unwrap(), id, for_line)?;
+        lines.push(next_line);
+
+        Ok(lines)
+    }
+
+    // next_line = !{ line_number ~ next_statement ~ end_of_line }
+    // next_statement = { "NEXT" ~ simple_numeric_variable }
+    pub fn next_line(pair: Pair, expected_id: usize, for_line: u16) -> ParseResult<AstNode> {
+        let mut pairs = pair.clone().into_inner();
+
+        let line = Self::line_number(pairs.next().unwrap())?;
+
+        // Validate matching id, next_statement/simple_numeric_variable
+        let sub_pair = first_child(pairs.next().unwrap());
+        let id = Variable::num_name_to_id(sub_pair.as_str());
+
+        if expected_id != id {
+            let m = format!("Mismatched NEXT, expected control variable {} but got {}", 
+                Variable::id_to_num_name(expected_id), Variable::id_to_num_name(id));
+            Err(ParseError::new(&m, &pair))
+        }
+        else {
+            Ok(AstNode::NextStatement{line, id, for_line})
+        }
     }
 
     pub fn line_number(pair: Pair) -> ParseResult<u16> {
         assert_rule(&pair, Rule::line_number);
-        pair.as_str().to_string().trim().parse::<u16>().map_err(|e|  ParseError::from_error(e, pair))
+        pair.as_str().to_string().trim().parse::<u16>().map_err(|e|  ParseError::from_error(e, &pair))
     }
 
     pub fn end_line(_pair: Pair) -> ParseResult<()> {
@@ -383,7 +530,7 @@ impl AstBuilder {
             Ok(v) => Ok(AstNode::NumVal(v)),
             Err(e) => {
                 println!("I don't like this literal! '{}' I got because of this {:?}", number_string, pair);
-                Err(ParseError::from_error(e, pair))
+                Err(ParseError::from_error(e, &pair))
             }
         }
     }
@@ -411,7 +558,7 @@ impl AstBuilder {
         match pair.as_rule() {
             Rule::string_expression => Self::string_expression(pair),
             Rule::numeric_expression => Self::numeric_expression(pair),
-            _ => Err(ParseError::unexpected(pair))
+            _ => Err(ParseError::unexpected("expression", &pair))
         }
     }
 
@@ -476,7 +623,7 @@ impl AstBuilder {
                         }
                     }
                 }
-                _ => return Err(ParseError::unexpected(p))
+                _ => return Err(ParseError::unexpected("numeric expression", &p))
             }
         }
 
@@ -522,7 +669,7 @@ impl AstBuilder {
                     }
 
                 }
-                _ => return Err(ParseError::unexpected(p))
+                _ => return Err(ParseError::unexpected("term", &p))
             }
         }
 
@@ -568,7 +715,7 @@ impl AstBuilder {
                     }
 
                 }
-                _ => return Err(ParseError::unexpected(p))
+                _ => return Err(ParseError::unexpected("factor", &p))
             }
         }
 
@@ -592,7 +739,7 @@ impl AstBuilder {
             Rule::numeric_function_ref => Self::numeric_function_ref(sub_pair),
             Rule::numeric_variable => Self::numeric_variable(sub_pair),  
             Rule::numeric_expression => Self::numeric_expression(sub_pair),
-            _ => Err(ParseError::unexpected(sub_pair))
+            _ => Err(ParseError::unexpected("primary", &sub_pair))
         }
     }
 
@@ -606,7 +753,7 @@ impl AstBuilder {
         match sub_pair.as_rule() {
             Rule::numeric_array_element => Self::numeric_array_element(sub_pair),
             Rule::simple_numeric_variable => Self::simple_numeric_variable(sub_pair),
-            _ => Err(ParseError::unexpected(sub_pair))
+            _ => Err(ParseError::unexpected("numeric variable", &sub_pair))
         }
     }
 
@@ -617,7 +764,7 @@ impl AstBuilder {
     pub fn numeric_array_element(pair: Pair) -> ParseResult<AstNode> {
         let mut pairs = pair.into_inner();
 
-        let id = array_name_to_id(pairs.next().unwrap().as_str());
+        let id = Variable::array_name_to_id(pairs.next().unwrap().as_str());
 
         let mut sub_pairs = pairs.next().unwrap().into_inner();
 
@@ -639,17 +786,17 @@ impl AstBuilder {
         match pair.as_rule() {
             Rule::string_variable => Self::string_variable(pair),
             Rule::string_constant => Self::quoted_string(pair),
-            _ => Err(ParseError::unexpected(pair))
+            _ => Err(ParseError::unexpected("string expression", &pair))
         }
     }
 
     pub fn simple_numeric_variable(pair: Pair) -> ParseResult<AstNode> {
-        let id = num_name_to_id(pair.as_str());
+        let id = Variable::num_name_to_id(pair.as_str());
         Ok(AstNode::NumRef(id))
     }
 
     pub fn string_variable(pair: Pair) -> ParseResult<AstNode> {
-        let id = string_name_to_id(pair.as_str());
+        let id = Variable::string_name_to_id(pair.as_str());
         Ok(AstNode::StringRef(id))
     }
 
