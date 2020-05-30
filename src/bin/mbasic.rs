@@ -24,16 +24,21 @@ struct Opts {
     #[clap(short, long)]
     interactive: bool,    
 
-    /// Set verbose to list parsed files and show the location of parse fails
+    /// Set verbose to list parsed files, and show the location of parse fails
     #[clap(short,long)]
     verbose: bool,
 
+    /// Developer option, run the NBS test suite
     #[clap(long)]
     nbs: bool,
 
-    // Pretty print the parse tree
+    // Pretty print the parse tree, the syntax of the program
     #[clap(short,long)]
-    pretty: bool,  
+    parse_tree: bool,  
+
+    // Pretty print the AST tree, the semantics of the program
+    #[clap(short,long)]
+    ast: bool,  
 }
 
 /// See if a given path has one of a number of file extensions (case insensitive)
@@ -68,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = Path::new(&opts.source);
 
-    let options = ParseOptions { pretty_print: opts.pretty };
+    let options = ParseOptions { show_parse_tree: opts.parse_tree, show_ast: opts.ast};
 
     if path.is_dir() {
         // Batch load of MIBs

@@ -6,14 +6,12 @@ extern crate pest_derive;
 extern crate log;
 extern crate thiserror;
 
+mod parser;
+mod ast;
+
 use thiserror::Error;
 use std::path::Path;
 use std::fs;
-
-mod parser;
-mod ast;
-mod pesthelpers;
-
 use ast::AstBuilder;
 
 type ParseResult<T> = std::result::Result<T, ParseError>;
@@ -40,18 +38,30 @@ pub enum ParseError {
 }
 
 pub struct ParseOptions {
-    pub pretty_print: bool
+    pub show_parse_tree: bool,
+    pub show_ast: bool
 }
 
 /// Parse a single file
 pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> ParseResult<()> {
+    
     trace!("Reading {}", path.as_ref().display());
     let source = fs::read_to_string(path)?; 
     trace!("Read {} characters", source.len());
 
-    let main_node = parser::parse_source(&source, options)?;
+    trace!("Parsing");
+    let parse_tree = parser::parse_source(&source, options)?;
 
-    let ast = AstBuilder::build(main_node)?;
+    if options.show_parse_tree {
+        parser::print_pair(&parse_tree);
+    }
+
+    trace!("Building AST");
+    let ast = AstBuilder::build(&parse_tree, options)?;
+
+    if options.show_ast {
+        ast::print_ast(&ast);
+    }
 
     Ok(())
 }
