@@ -118,14 +118,14 @@ fn print_ast_helper(node: &AstNode, level:usize) {
         }
         AstNode::NumVal(x) => println!("{}", x),
         AstNode::StringVal(s) => println!("'{}'", s),
-        AstNode::NumRef(id) =>  println!("{}", numeric_var_name(*id)),
-        AstNode::StringRef(id) =>  println!("{}", string_var_name(*id)),
+        AstNode::NumRef(id) =>  println!("{}", id_to_num_name(*id)),
+        AstNode::StringRef(id) =>  println!("{}", id_to_string_name(*id)),
         AstNode::ArrayRef1{id, index} => {
-            println!("{}[]", array_var_name(*id));
+            println!("{}[]", id_to_array_name(*id));
             print_ast_helper(&index, level+1);             
         }
         AstNode::ArrayRef2{id, index1, index2} => {
-            println!("{}[,]", array_var_name(*id));
+            println!("{}[,]", id_to_array_name(*id));
             print_ast_helper(&index1, level+1);
             print_ast_helper(&index2, level+1);                 
         }
@@ -137,20 +137,59 @@ fn id_to_char(id: usize) -> char {
     ((id as u8) + b'A') as char
 }
 
-fn array_var_name(id: usize) -> String {
+pub fn id_to_array_name(id: usize) -> String {
     format!("{}", id_to_char(id))
 }
 
-fn string_var_name(id: usize) -> String {
+pub fn array_name_to_id(name: &str) -> usize {
+    let bytes = name.as_bytes();
+
+    assert_eq!(bytes.len(), 1);
+
+    let id = (bytes[0] - b'A') as usize;
+    debug_assert!(id < 26, "Failed to get valid index for array variable {}", id);
+
+    id
+}
+
+pub fn id_to_string_name(id: usize) -> String {
     format!("{}$", id_to_char(id))
 }
 
-fn numeric_var_name(id: usize) -> String{
-    assert!(id < (26 * 11), "String index out of range");
+pub fn string_name_to_id(name: &str) -> usize {
+    let bytes = name.as_bytes();
+
+    assert_eq!(bytes.len(), 2);
+    assert_eq!(bytes[1], b'$');
+
+    let id = (bytes[0] - b'A') as usize;
+    debug_assert!(id < 26, "Failed to get valid index for string variable {}", id);
+
+    id
+}
+
+pub fn id_to_num_name(id: usize) -> String {
+    assert!(id < (26 * 11), "Number id out of range {}", 26 * 11);
     match id < 26 {
-        true => format!("{}", id_to_char(id % 26)), // A..Z
-        _ => format!("{}{}", id_to_char(id % 26), (id / 26) - 1) // A0.. Z9
+        true => format!("{}", id_to_char(id)), // A..Z
+        _ => format!("{}{}", id_to_char((id - 26) / 10), ((id - 26) % 10)) // A0.. Z9
     }
+}
+
+pub fn num_name_to_id(name: &str) -> usize {
+    let bytes = name.as_bytes();
+
+    assert!(bytes.len() >= 1, "Number name {} must be at least one byte long", name);
+
+    let mut id = (bytes[0] - b'A') as usize;
+
+    if bytes.len() > 1 {
+        id = 26 + (id * 10) + ((bytes[1] - b'0') as usize);
+    }
+
+    debug_assert!(id < 26 * 11, "Failed to get valid index for numeric variable {}", id);
+
+    id
 }
 
 pub struct AstBuilder {
@@ -473,10 +512,6 @@ impl AstBuilder {
         }
     }
 
-    fn id_from_first(bytes: &[u8]) -> usize {
-        (bytes[0] - b'A') as usize
-    }
-
     //
     // numeric_array_element  = { numeric_array_name ~ subscript }
     // subscript = { "(" ~ numeric_expression ~ ( "," ~ numeric_expression )?  ~ ")" }
@@ -484,7 +519,7 @@ impl AstBuilder {
     pub fn numeric_array_element(pair: Pair) -> ParseResult<AstNode> {
         let mut pairs = pair.into_inner();
 
-        let id = Self::id_from_first(pairs.next().unwrap().as_str().as_bytes());
+        let id = array_name_to_id(pairs.next().unwrap().as_str());
 
         let mut sub_pairs = pairs.next().unwrap().into_inner();
 
@@ -511,26 +546,12 @@ impl AstBuilder {
     }
 
     pub fn simple_numeric_variable(pair: Pair) -> ParseResult<AstNode> {
-        let bytes = pair.as_str().as_bytes();
-
-        let mut id = Self::id_from_first(bytes);
-
-        if bytes.len() > 1 {
-            id = (id + 1) * 10 + ((bytes[1] - b'0') as usize);
-        }
-    
-        // Yeah, in theory only 0..25, but check that
-        debug_assert!(id < 26 * 11, "Failed to get valid index for numeric variable");
-
+        let id = num_name_to_id(pair.as_str());
         Ok(AstNode::NumRef(id))
     }
 
     pub fn string_variable(pair: Pair) -> ParseResult<AstNode> {
-        let id = Self::id_from_first(pair.as_str().as_bytes());
-    
-        // Yeah, in theory only 0..25, but check that
-        debug_assert!(id < 26, "Failed to get valid index for string variable");
-
+        let id = string_name_to_id(pair.as_str());
         Ok(AstNode::StringRef(id))
     }
 

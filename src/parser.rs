@@ -181,6 +181,38 @@ mod tests {
         let _pair = parse(Rule::line_number, "1234 ");
     }
 
+    #[test]
+    fn variable_names_num()
+    {
+        for id in 0..(26*11) {
+            let name = crate::ast::id_to_num_name(id);
+            let j = crate::ast::num_name_to_id(&name);
+            println!("{} -> {} -> {}", id, name, j );
+            assert_eq!(id, j, "Difference for {}", name);
+        }
+    }
+
+    #[test]
+    fn variable_names_string()
+    {
+        for id in 0..26 {
+            let name = crate::ast::id_to_string_name(id);
+            let j = crate::ast::string_name_to_id(&name);
+            println!("{} -> {} -> {}", id, name, j );
+            assert_eq!(id, j, "Difference for {}", name);
+        }
+    }
+    
+    #[test]
+    fn variable_names_array()
+    {
+        for id in 0..26 {
+            let name = crate::ast::id_to_array_name(id);
+            let j = crate::ast::array_name_to_id(&name);
+            println!("{} -> {} -> {}", id, name, j );
+            assert_eq!(id, j, "Difference for {}", name);
+        }
+    }
 
     #[test]
     fn expression() {     
@@ -193,6 +225,10 @@ mod tests {
         exp("1 + (2 + (3 + (4 + (5 + 6))))");
         exp("1 - 2 * 3 + 4 / 5 ^ 2");
 
+        exp("- A + 2 - Z9");
+        
+        exp("SIN (1) * M(3 + COS(B)) / N(46, A)");
+
         exp("1");
         exp(".2");
         exp("1.2");
@@ -202,15 +238,6 @@ mod tests {
         exp("A$");
         exp("\"-ABCD-\"");
     }
-
-
-    // numeric_constant = { sign? ~ numeric_rep }
-    // sign = { plus | minus }
-    // numeric_rep = { significand ~ exrad? }
-    // significand = { (integer? ~ fraction) | (integer ~ "."?) }
-    // integer = @{ ASCII_DIGIT+ }
-    // fraction = @{ "." ~ ASCII_DIGIT+ }
-    // exrad = @{ "E" ~ sign? ~ integer }
 
     #[test]
     fn numeric_rep() {
@@ -241,7 +268,7 @@ mod tests {
 
     fn num_rep(input: &str, expected: f64) {
         println!("Checking numeric {}", input);
-        
+
         let pair = parse(Rule::numeric_rep, input);
 
         match AstBuilder::numeric_rep(pair) {
