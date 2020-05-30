@@ -33,7 +33,9 @@ pub enum ParseError {
     #[error("Error generating AST because {reason}")]
     AstError {
         reason: String,
-        lines: Vec<String>,     
+        rule_type: parser::Rule,
+        start_pos: usize,
+        end_pos: usize    
     }
 }
 

@@ -25,7 +25,7 @@ pub fn parse_source<'i>(source: &'i str, options: &ParseOptions) -> ParseResult<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstBuilder, print_ast};
+    use crate::ast::{AstBuilder, AstNode, print_ast};
 
     #[test]
     fn program1() {
@@ -203,27 +203,64 @@ mod tests {
         exp("\"-ABCD-\"");
     }
 
+
+    // numeric_constant = { sign? ~ numeric_rep }
+    // sign = { plus | minus }
+    // numeric_rep = { significand ~ exrad? }
+    // significand = { (integer? ~ fraction) | (integer ~ "."?) }
+    // integer = @{ ASCII_DIGIT+ }
+    // fraction = @{ "." ~ ASCII_DIGIT+ }
+    // exrad = @{ "E" ~ sign? ~ integer }
+
     #[test]
     fn numeric_rep() {
-        num_rep("1", 1.0);
-        num_rep("1.2", 1.2);
-        num_rep(".1", 0.1);
+        num_rep("123", 123.0);
+        num_rep("123.", 123.0);
+        num_rep("123.2", 123.2);
+        num_rep(".123", 0.123);
+
+        num_rep("123E2", 12300.0);
+        num_rep("123.E2", 12300.0);
+        num_rep("123.2E2", 12320.0);
+        num_rep(".123E2", 12.3);
+
+        num_rep("123E+2", 12300.0);
+        num_rep("123.E+2", 12300.0);
+        num_rep("123.2E+2", 12320.0);
+        num_rep(".123E+2", 12.3);
+
+        num_rep("123E-2", 1.23);
+        num_rep("123.E-2", 1.23);
+        num_rep("123.2E-2", 1.232);
+        num_rep(".123E-2", 0.00123);
+
         num_rep("2.345", 2.345);
         num_rep("3.14159", 3.14159);
         num_rep("122E+14", 122E+14);
     }
 
     fn num_rep(input: &str, expected: f64) {
+        println!("Checking numeric {}", input);
+        
         let pair = parse(Rule::numeric_rep, input);
-        let value = AstBuilder::numeric_rep(pair).unwrap();
-        assert_eq!(value, expected)
+
+        match AstBuilder::numeric_rep(pair) {
+            Err(e) => panic!("Failed numeric parse {} because {}", input, e),
+            Ok(AstNode::NumVal(v)) => assert_eq!(v, expected),
+            Ok(x) =>  panic!("I did not expect a {:?}", x)
+        }     
     }
 
     fn exp(input: &str) {
+        println!("Parsing: {}", input);
+
         let pair = parse(Rule::expression, input);
         print_pair(&pair);
-        let ast = AstBuilder::expression(pair).unwrap();
-        print_ast(&ast);
+
+        match AstBuilder::expression(pair) {
+            Ok(ast) => print_ast(&ast),
+            Err(e) => panic!("{}", e)
+        }
     }
  
     #[test]

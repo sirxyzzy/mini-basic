@@ -3,6 +3,26 @@ WHITESPACE = _{ " " }
 letter = {ASCII_ALPHA_UPPER}
 digit = {ASCII_DIGIT}
 
+// infix
+plus = @{"+"}
+minus = @{"-"}
+multiply = @{"*"}
+divide = @{"/"}
+pow = @{"^"}
+
+// supplied
+abs = @{"ABS"}
+atn = @{"ATN"}
+cos = @{"COS"}
+exp = @{"EXP"}
+int = @{"INT"}
+log = @{"LOG"}
+rnd = @{"RND"}
+sgn = @{"SGN"}
+sin = @{"SIN"}
+sqr = @{"SQR"}
+tan = @{"TAN"}
+
 quote = { "\"" }
 plain_string_character = { "+" | "-" | "." | digit | letter }
 unquoted_string = @{ plain_string_character+ ~ ( " "+ ~ plain_string_character+)* }
@@ -73,7 +93,7 @@ return_statement = { "RETURN" }
 stop_statement = { "STOP" }
 
 numeric_constant = { sign? ~ numeric_rep }
-sign = { "+" | "-" }
+sign = { plus | minus }
 numeric_rep = { significand ~ exrad? }
 significand = { (integer? ~ fraction) | (integer ~ "."?) }
 integer = @{ ASCII_DIGIT+ }
@@ -93,8 +113,8 @@ string_variable = @{ letter ~ "$" }
 expression = { string_expression | numeric_expression }
 numeric_expression = { sign? ~ term ~ (sign ~ term)* }
 term = { factor ~ (multiplier ~ factor)* }
-factor = { primary ~ ("^" ~ primary)* }
-multiplier = { "*" | "/" }
+factor = { primary ~ (pow ~ primary)* }
+multiplier = { multiply | divide }
 primary = {  
     numeric_rep 
   | numeric_function_ref 
@@ -105,8 +125,7 @@ numeric_function_name = { numeric_defined_function | numeric_supplied_function }
 argument_list = { "(" ~ argument ~ ")" }
 argument = { numeric_expression }
 string_expression  = { string_variable | string_constant }
-numeric_supplied_function = { "ABS" | "ATN" | "COS" | "EXP" | "INT" | 
-  "LOG" | "RND" | "SGN" | "SIN" | "SQR" | "TAN" }
+numeric_supplied_function = { abs | atn | cos | exp | int | log | rnd | sgn | sin | sqr | tan }
 
 //
 // for

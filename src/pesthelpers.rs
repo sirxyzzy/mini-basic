@@ -25,7 +25,7 @@ fn print_single_node(pair: &Pair) {
     let rule = pair.as_rule();
 
     if text.len() < 32 {
-        println!("<{:?}> {}", rule, text)
+        println!("<{:?}> '{}'", rule, text)
     } else {
         println!("<{:?}> ...", rule)
     }  
