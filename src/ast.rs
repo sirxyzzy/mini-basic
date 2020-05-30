@@ -12,6 +12,8 @@ pub enum AstNode {
         lines: BTreeMap<u16, AstNode>
     },
 
+    // All statements have a line number
+    // and all must be referenced in 
     DataStatement{ line: u16 },
     DefStatement{ line: u16 },
     DimensionStatement{ line: u16 },
@@ -144,6 +146,9 @@ impl OpCode {
     } 
 }
 
+//
+// If I am a statement, provide the line number
+//
 pub fn statement_line_number(node: &AstNode) -> Option<u16> {
     match node {
         AstNode::DataStatement{ line,..} |
@@ -170,6 +175,17 @@ pub fn statement_line_number(node: &AstNode) -> Option<u16> {
     }
 }
 
+//
+// Am I a statement, yes if I have a line number!
+//
+pub fn is_statement(node: &AstNode) -> bool {
+    match statement_line_number(node) {
+        Some(_) => true,
+        None => false
+    }
+}
+
+/// Pretty print an AST, starting at any node
 pub fn print_ast(node: &AstNode) {
     print_ast_helper("AST", node, 0);
 }
@@ -208,13 +224,15 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         }
 
         AstNode::Program{lines} => {
+            println!("Program");
+
             for line in lines.iter() {
-                print_ast_helper("", line.1, level+1);
+                print_ast_helper(&format!("{}", line.0), line.1, level+1);
             }
         }
 
-        AstNode::ForStatement{line, id, from, to, step} => {
-            println!("{} FOR {}", line, vars::id_to_num_name(*id));
+        AstNode::ForStatement{id, from, to, step, ..} => {
+            println!("FOR {}", vars::id_to_num_name(*id));
             print_ast_helper("from", from, level+1);
             print_ast_helper("  to", to, level+1);
             if let Some(step) =  step {
@@ -222,17 +240,17 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             }
         },
 
-        AstNode::NextStatement{line , id, for_line} => 
-            println!("{} NEXT {} ({})", line, vars::id_to_num_name(*id), for_line),
+        AstNode::NextStatement{id, for_line, ..} => 
+            println!("NEXT {} ({})", vars::id_to_num_name(*id), for_line),
 
-        AstNode::LetStatement{line, var, val} => {
-            println!("{} LET", line);
+        AstNode::LetStatement{var, val, ..} => {
+            println!("LET");
             print_ast_helper("var", var, level+1);
             print_ast_helper("value", val, level+1);
         },
 
-        AstNode::IfThenStatement{line, expr, then} => {
-            println!("{} IF THEN {}", line, then);
+        AstNode::IfThenStatement{expr, then, ..} => {
+            println!("IF THEN {}", then);
             print_ast_helper("expr", expr, level+1);    
         }
 
