@@ -10,6 +10,14 @@ multiply = @{"*"}
 divide = @{"/"}
 pow = @{"^"}
 
+// relational
+ge = @{">="}
+le = @{ "<=" }
+lt = @{ "<" }
+gt = @{ ">" }
+eq = @{"="}
+neq = @{"<>"}
+
 // supplied
 abs = @{"ABS"}
 atn = @{"ATN"}
@@ -66,8 +74,8 @@ goto_statement = { "GO" ~ "TO " ~ line_number_ref }
 if_then_statement = { "IF " ~ relational_expression ~ "THEN" ~ line_number_ref }
 relational_expression = { (numeric_expression ~ relation ~ numeric_expression) 
                           | (string_expression ~ equality_relation ~ string_expression) }
-relation = { equality_relation | ">=" | "<=" | "<" | ">" }
-equality_relation = { "=" | "<>" }
+relation = { equality_relation | ge | le | lt | gt }
+equality_relation = { eq | neq }
 
 input_statement = { "INPUT " ~ variable_list }
 

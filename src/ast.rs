@@ -17,7 +17,7 @@ pub enum AstNode {
     DimensionStatement{ line: u16 },
     GosubStatement{ line: u16 },
     GotoStatement{ line: u16 },
-    IfThenStatement{ line: u16 },
+    IfThenStatement{ line: u16, expr: Box<AstNode>, then: u16 },
     InputStatement{ line: u16 },
     LetStatement{ line: u16, var: Box<AstNode>, val: Box<AstNode> },
     OnGotoStatement{ line: u16 },
@@ -88,6 +88,14 @@ pub enum OpCode {
     Sqr,
     Tan,
 
+    // Relational
+    Ge,
+    Le,
+    Gt,
+    Lt,
+    Eq,
+    Neq,
+
     // Defined
     Def (String)
 }
@@ -117,7 +125,21 @@ impl OpCode {
             Rule::sqr =>  Some(OpCode::Sqr),
             Rule::tan =>  Some(OpCode::Tan),
             Rule::numeric_defined_function => Some(OpCode::Def(pair.as_str().to_owned())),
-            _ => None
+
+            Rule::ge  =>  Some(OpCode::Ge),
+            Rule::le  =>  Some(OpCode::Le),
+            Rule::lt  =>  Some(OpCode::Lt),
+            Rule::gt  =>  Some(OpCode::Gt),
+            Rule::eq  =>  Some(OpCode::Eq),
+            Rule::neq  =>  Some(OpCode::Neq),
+
+            Rule::relation |
+            Rule::equality_relation => Self::from_pair(descendant(pair)),
+
+            _ => {
+                println!("{:?} is not a supported opcode!", pair);
+                None
+            }
         }
     } 
 }
@@ -160,13 +182,16 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             print_ast_helper(" left",left, level+1);
             print_ast_helper("right", right, level+1);
         }
+
         AstNode::MonOp{op, arg} => {
             println!("{:?}", op);
             print_ast_helper("Arg", arg, level+1);            
         }
+
         AstNode::Op(op) => {
             println!("{:?}", op);   
         }
+
         AstNode::NumVal(x) => println!("{}", x),
         AstNode::StringVal(s) => println!("'{}'", s),
         AstNode::NumRef(id) =>  println!("{}", vars::id_to_num_name(*id)),
@@ -175,16 +200,19 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             println!("{}[]", vars::id_to_array_name(*id));
             print_ast_helper("index", index, level+1);             
         }
+
         AstNode::ArrayRef2{id, index1, index2} => {
             println!("{}[,]", vars::id_to_array_name(*id));
             print_ast_helper("index1", index1, level+1);
             print_ast_helper("index2", index2, level+1);                 
         }
+
         AstNode::Program{lines} => {
             for line in lines.iter() {
                 print_ast_helper("", line.1, level+1);
             }
         }
+
         AstNode::ForStatement{line, id, from, to, step} => {
             println!("{} FOR {}", line, vars::id_to_num_name(*id));
             print_ast_helper("from", from, level+1);
@@ -193,6 +221,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
                 print_ast_helper("step", step, level+1);
             }
         },
+
         AstNode::NextStatement{line , id, for_line} => 
             println!("{} NEXT {} ({})", line, vars::id_to_num_name(*id), for_line),
 
@@ -200,6 +229,11 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             println!("{} LET", line);
             print_ast_helper("var", var, level+1);
             print_ast_helper("value", val, level+1);
+        },
+
+        AstNode::IfThenStatement{line, expr, then} => {
+            println!("{} IF THEN {}", line, then);
+            print_ast_helper("expr", expr, level+1);    
         }
 
         _ => println!("{:?}", node) 
@@ -257,6 +291,29 @@ pub fn first_two_children<'i>(pair: Pair<'i>) -> (Pair<'i>, Pair<'i>) {
     let c2 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
 
     (c1,c2)
+}
+
+pub fn first_three_children<'i>(pair: Pair<'i>) -> (Pair<'i>, Pair<'i>, Pair<'i>) {
+    let rule = pair.as_rule();
+    let mut pairs = pair.into_inner();
+    
+    let c1 = pairs.next().expect(&format!("Expected first child in {:?}", rule));
+    let c2 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
+    let c3 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
+
+    (c1,c2,c3)
+}
+
+pub fn descendant<'i>(pair: Pair<'i>) -> Pair<'i> {
+    let mut here = pair;
+    loop {
+       let child = here.clone().into_inner().peek();
+
+       match child {
+           Some(c) => here = c,
+           None => return here
+       }
+   }
 }
 
 pub fn assert_rule(pair: &Pair, expected: Rule) {
@@ -324,7 +381,7 @@ impl AstBuilder {
             Rule::dimension_statement => Ok(AstNode::DimensionStatement{line}),
             Rule::gosub_statement => Ok(AstNode::GosubStatement{line}),
             Rule::goto_statement => Ok(AstNode::GotoStatement{line}),
-            Rule::if_then_statement => Ok(AstNode::IfThenStatement{line}),
+            Rule::if_then_statement => Self::if_then_statement(p, line),
             Rule::input_statement => Ok(AstNode::InputStatement{line}),
             Rule::let_statement => Self::let_statement( p,line),
             Rule::on_goto_statement => Ok(AstNode::OnGotoStatement{line}),
@@ -337,6 +394,37 @@ impl AstBuilder {
             Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
             Rule::stop_statement => Ok(AstNode::StopStatement{line}),
             _ => panic!("Not a statement, we should never reach here!")
+        }
+    }
+
+    // if_then_statement = { "IF " ~ relational_expression ~ "THEN" ~ line_number_ref }
+    fn if_then_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let (rel_pair,line_pair) = first_two_children(pair);
+        let expr = Box::new(Self::relational_expression(rel_pair)?);
+        let then = Self::line_number(line_pair)?;
+        Ok(AstNode::IfThenStatement{line, expr, then})
+    }
+
+    // relational_expression = { (numeric_expression ~ relation ~ numeric_expression) 
+    //    | (string_expression ~ equality_relation ~ string_expression) }
+    fn relational_expression(pair: Pair) -> ParseResult<AstNode> {
+
+        let (left_pair, rel, right_pair) = first_three_children(pair);
+
+        match left_pair.as_rule() {
+            Rule::numeric_expression => {
+                let left = Self::numeric_expression(left_pair)?;
+                let right = Self::numeric_expression(right_pair)?;
+                let op = OpCode::from_pair(rel).expect("I want a valid opcode!");
+                Ok(AstNode::BinOp{op, left:Box::new(left), right:Box::new(right)})
+            },
+            Rule::string_expression => {
+                let left = Self::string_expression(left_pair)?;
+                let right = Self::string_expression(right_pair)?;
+                let op = OpCode::from_pair(rel).unwrap();
+                Ok(AstNode::BinOp{op, left:Box::new(left), right:Box::new(right)})
+            },
+            _ => Err(ParseError::unexpected("relational expression", &left_pair))
         }
     }
 
@@ -446,8 +534,8 @@ impl AstBuilder {
         }
     }
 
+    // This can handle both line numbers and line number refs
     pub fn line_number(pair: Pair) -> ParseResult<u16> {
-        assert_rule(&pair, Rule::line_number);
         pair.as_str().to_string().trim().parse::<u16>().map_err(|e|  ParseError::from_error(e, &pair))
     }
 
