@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
@@ -57,7 +59,7 @@ pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> ParseResu
     }
 
     trace!("Building AST");
-    let ast = AstBuilder::build(&parse_tree, options)?;
+    let ast = AstBuilder::build(parse_tree, options)?;
 
     if options.show_ast {
         ast::print_ast(&ast);

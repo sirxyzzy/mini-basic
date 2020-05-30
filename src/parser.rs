@@ -10,7 +10,7 @@ use super::ParseOptions;
 pub type Pair<'i> = pest::iterators::Pair<'i, Rule>;
 pub type Pairs<'i> = pest::iterators::Pairs<'i, Rule>;
 
-pub fn parse_source<'i>(source: &'i str, options: &ParseOptions) -> ParseResult<Pair<'i>> {
+pub fn parse_source<'i>(source: &'i str, _options: &ParseOptions) -> ParseResult<Pair<'i>> {
     let pairs = BasicParser::parse(Rule::program, source)?;
     let program_pair = pairs.peek().unwrap();
     Ok(program_pair)
