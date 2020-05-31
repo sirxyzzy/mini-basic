@@ -3,6 +3,7 @@ use super::*;
 use std::error::Error;
 use std::collections::BTreeMap;
 use vars;
+use std::str::FromStr;
 
 
 // Since the tree is immutable, we can build it with refs
@@ -16,7 +17,7 @@ pub enum AstNode {
     // and all must be referenced in 
     DataStatement{ line: u16 },
     DefStatement{ line: u16 },
-    DimensionStatement{ line: u16 },
+    DimensionStatement{ line: u16, declarations: Vec<AstNode>},
     GosubStatement{ line: u16 },
     GotoStatement{ line: u16 },
     IfThenStatement{ line: u16, expr: Box<AstNode>, then: u16 },
@@ -70,7 +71,10 @@ pub enum AstNode {
         id: usize,
         index1: Box<AstNode>,
         index2: Box<AstNode>        
-    },    
+    },
+    
+    ArrayDecl1 { id: usize, bound: usize },
+    ArrayDecl2 { id: usize, bound1: usize, bound2: usize },
 }
 
 #[derive(Debug)]
@@ -230,7 +234,6 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
 
         AstNode::Program{lines} => {
             println!("Program");
-
             for line in lines.iter() {
                 print_ast_helper(&format!("{:4}", line.0), line.1, level+1);
             }
@@ -246,7 +249,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         },
 
         AstNode::NextStatement{id, for_line, ..} => 
-            println!("NEXT {} ->{}", vars::id_to_num_name(*id), for_line),
+            println!("NEXT {} -> {}", vars::id_to_num_name(*id), for_line),
 
         AstNode::LetStatement{var, val, ..} => {
             println!("LET");
@@ -259,19 +262,8 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             print_ast_helper("", expr, level+1);    
         }
 
-        AstNode::PrintStatement{items, ..} => {
-            println!("PRINT");
-            for item in items.iter() {
-                print_ast_helper("", item, level+1);
-            }
-        }
-
-        AstNode::InputStatement{vars, ..} => {
-            println!("INPUT");
-            for var in vars.iter() {
-                print_ast_helper("", var, level+1);
-            }            
-        }
+        AstNode::PrintStatement{items, ..} => print_ast_list_helper("PRINT", items, level),
+        AstNode::InputStatement{vars, ..} => print_ast_list_helper("INPUT", vars, level),
 
         AstNode::RemarkStatement{..} => println!("REM ..."),
         AstNode::RandomizeStatement{..} => println!("RANDOMIZE"),
@@ -280,7 +272,19 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         AstNode::StopStatement{..} => println!("STOP"),
         AstNode::EndStatement{..} => println!("END"),
 
+        AstNode::DimensionStatement{declarations, ..} => print_ast_list_helper("DIM", declarations, level),
+
+        AstNode::ArrayDecl1{id, bound} => println!("{}[{}]", vars::id_to_array_name(*id), bound),
+        AstNode::ArrayDecl2{id, bound1, bound2} => println!("{}[{},{}]", vars::id_to_array_name(*id), bound1, bound2),
+
         _ => println!("{:?}", node) 
+    }
+
+    fn print_ast_list_helper(thing: &str, nodes: &Vec<AstNode>, level:usize) {
+        println!("{}", thing);
+        for var in nodes.iter() {
+            print_ast_helper("", var, level+1);
+        }  
     }
 }
 
@@ -360,6 +364,20 @@ pub fn descendant<'i>(pair: Pair<'i>) -> Pair<'i> {
    }
 }
 
+/// Parse a pair into an arbitrary parsable type 
+pub fn parse_pair<T: FromStr>(pair: Pair) -> ParseResult<T> {
+    let text = pair.as_str().to_string();
+    // I don't understand why, but sometimes I get whitespace around stuff
+    // which breaks parsing, so I trim!
+    match text.trim().parse::<T>() {
+        Ok(v) => Ok(v),
+        Err(_e) => {
+            let reason = format!("I can't parse this '{}' to a {}", text, std::any::type_name::<T>());
+            Err(ParseError::new(&reason, &pair))
+        }
+    }    
+}
+
 pub fn assert_rule(pair: &Pair, expected: Rule) {
     assert_eq!(pair.as_rule(), expected, "Expected <{:?}>", expected)
 }
@@ -422,7 +440,7 @@ impl AstBuilder {
         match p.as_rule() {
             Rule::data_statement => Ok(AstNode::DataStatement{line}),
             Rule::def_statement => Ok(AstNode::DefStatement{line}),
-            Rule::dimension_statement => Ok(AstNode::DimensionStatement{line}),
+            Rule::dimension_statement => Self::dimension_statement(p, line),
             Rule::gosub_statement => Ok(AstNode::GosubStatement{line}),
             Rule::goto_statement => Ok(AstNode::GotoStatement{line}),
             Rule::if_then_statement => Self::if_then_statement(p, line),
@@ -438,6 +456,51 @@ impl AstBuilder {
             Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
             Rule::stop_statement => Ok(AstNode::StopStatement{line}),
             _ => panic!("Not a statement, we should never reach here!")
+        }
+    }
+
+    fn process_list(pair: Pair, map_fn: fn(Pair) -> ParseResult<AstNode>) -> ParseResult<Vec<AstNode>> {
+        let mut list: Vec<AstNode> = Vec::new();
+
+        for p in pair.into_inner() {
+            list.push(map_fn(p)?);
+        }
+
+        Ok(list)
+    }
+
+    // dimension_statement = { "DIM " ~ array_declaration ~ ("," ~ array_declaration)* }
+    fn dimension_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let list = Self::process_list(pair, Self::array_declaration)?;
+        Ok(AstNode::DimensionStatement{line, declarations: list})
+    }
+
+    // array_declaration = { numeric_array_name ~ "(" ~ bounds ~ ")" }
+    // bounds = { integer ~ ("," ~ integer)? }
+    fn array_declaration(pair: Pair) -> ParseResult<AstNode> {
+        let mut pairs = pair.into_inner();
+
+        // The id for the array
+        let id = vars::array_name_to_id(pairs.next().unwrap().as_str());
+
+        // Iterator over bounds pairs
+        let mut bps = pairs.next().unwrap().into_inner();
+
+        // Must have at least one!
+        let bound1_pair = bps.next().expect("Must have at least one bound");
+        let bound1 = parse_pair::<usize>(bound1_pair)?;
+
+        // Optional second
+        let bound2_pair = bps.next();
+
+        match bound2_pair {
+            None => {
+                Ok(AstNode::ArrayDecl1{id, bound: bound1})
+            }
+            Some(b) => {
+                let bound2 = parse_pair::<usize>(b)?;
+                Ok(AstNode::ArrayDecl2{id, bound1, bound2})
+            }
         }
     }
 
