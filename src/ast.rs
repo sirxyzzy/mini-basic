@@ -20,7 +20,7 @@ pub enum AstNode {
     GosubStatement{ line: u16 },
     GotoStatement{ line: u16 },
     IfThenStatement{ line: u16, expr: Box<AstNode>, then: u16 },
-    InputStatement{ line: u16 },
+    InputStatement{ line: u16, vars: Vec<AstNode>},
     LetStatement{ line: u16, var: Box<AstNode>, val: Box<AstNode> },
     OnGotoStatement{ line: u16 },
     OptionStatement{ line: u16 },
@@ -266,6 +266,13 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             }
         }
 
+        AstNode::InputStatement{vars, ..} => {
+            println!("INPUT");
+            for var in vars.iter() {
+                print_ast_helper("", var, level+1);
+            }            
+        }
+
         AstNode::RemarkStatement{..} => println!("REM ..."),
         AstNode::RandomizeStatement{..} => println!("RANDOMIZE"),
         AstNode::RestoreStatement{..} => println!("RESTORE"),
@@ -419,7 +426,7 @@ impl AstBuilder {
             Rule::gosub_statement => Ok(AstNode::GosubStatement{line}),
             Rule::goto_statement => Ok(AstNode::GotoStatement{line}),
             Rule::if_then_statement => Self::if_then_statement(p, line),
-            Rule::input_statement => Ok(AstNode::InputStatement{line}),
+            Rule::input_statement => Self::input_statement( p,line),
             Rule::let_statement => Self::let_statement( p,line),
             Rule::on_goto_statement => Ok(AstNode::OnGotoStatement{line}),
             Rule::option_statement => Ok(AstNode::OptionStatement{line}),
@@ -431,6 +438,29 @@ impl AstBuilder {
             Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
             Rule::stop_statement => Ok(AstNode::StopStatement{line}),
             _ => panic!("Not a statement, we should never reach here!")
+        }
+    }
+
+    // input_statement = { "INPUT " ~ variable_list }
+    // variable_list = { variable ~ ("," ~ variable)* }
+    fn input_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let mut var_list: Vec<AstNode> = Vec::new();
+
+        let list_pair = first_child(pair);
+
+        for p in list_pair.into_inner() {
+            var_list.push(Self::variable(p)?);
+        }
+        Ok(AstNode::InputStatement{line, vars: var_list})
+    }
+
+    // variable = { string_variable | numeric_variable }
+    fn variable(pair: Pair) -> ParseResult<AstNode> {
+        let child = first_child(pair);
+        match child.as_rule() {
+            Rule::string_variable => Ok(Self::string_variable(child)?),
+            Rule::numeric_variable => Ok(Self::numeric_variable(child)?),
+            _ => Err(ParseError::unexpected("variable", &child))
         }
     }
 
