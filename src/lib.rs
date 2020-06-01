@@ -1,12 +1,17 @@
 #![allow(dead_code)]
 
 extern crate pest;
+
 #[macro_use]
 extern crate pest_derive;
 
 #[macro_use]
 extern crate log;
+
 extern crate thiserror;
+
+extern crate itertools;
+
 
 mod parser;
 mod ast;

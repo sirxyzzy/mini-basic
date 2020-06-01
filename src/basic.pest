@@ -58,8 +58,7 @@ statement = { data_statement | def_statement |
 data_statement = { "DATA " ~ datum ~ ("," ~ datum)* }
 datum = { quoted_string | unquoted_string }
 
-def_statement = { "DEF " ~ numeric_defined_function 
-                  ~ parameter_list? ~ "=" ~ numeric_expression }
+def_statement = { "DEF " ~ numeric_defined_function ~ parameter_list? ~ "=" ~ numeric_expression }
 numeric_defined_function = @{ "FN" ~ letter }
 parameter_list = { "(" ~ parameter ~ ")" }
 parameter = { simple_numeric_variable }
