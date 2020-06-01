@@ -84,7 +84,8 @@ numeric_let_statement   = { "LET " ~ numeric_variable ~ "=" ~ numeric_expression
 string_let_statement = { "LET " ~ string_variable  ~ "=" ~ string_expression }
 
 on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
-option_statement = { "OPTION " ~ "BASE" ~ ("0" | "1") }
+option_statement = { "OPTION " ~ "BASE" ~ base }
+base = @{"0" | "1"}
 
 print_statement = { ("PRINT " ~ print_list) | "PRINT" }
 print_list = { (print_item? ~ print_separator)* ~ print_item? }

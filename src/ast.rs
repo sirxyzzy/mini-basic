@@ -27,10 +27,10 @@ pub enum AstNode {
     InputStatement{ line: u16, vars: Vec<AstNode>},
     LetStatement{ line: u16, var: Box<AstNode>, val: Box<AstNode> },
     OnGotoStatement{ line: u16, expr: Box<AstNode>, line_refs: Vec<u16>},
-    OptionStatement{ line: u16 },
+    OptionStatement{ line: u16, base: u16 },
     PrintStatement{ line: u16, items: Vec<AstNode> },
     RandomizeStatement{ line: u16 },
-    ReadStatement{ line: u16 },
+    ReadStatement{ line: u16, vars: Vec<AstNode> },
     RemarkStatement{ line: u16 },
     RestoreStatement{ line: u16 },
     ReturnStatement{ line: u16 },
@@ -300,14 +300,18 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         }
 
         AstNode::DimensionStatement{declarations, ..} => print_ast_list_helper("DIM", declarations, level),
+        AstNode::ReadStatement{vars, ..} => print_ast_list_helper("READ", vars, level),
 
         AstNode::GosubStatement{line_ref, ..} => println!("GOSUB {}", line_ref), 
         AstNode::GotoStatement{line_ref, ..} => println!("GOTO {}", line_ref),
+
         AstNode::OnGotoStatement{expr, line_refs, ..} => {
             let line_refs = line_refs.iter().map(|line_ref| line_ref.to_string()).join(", ");
             println!("ON expr: GOTO {}", line_refs);
             print_ast_helper("expr", expr, level+1);
-        }  
+        }
+        
+        AstNode::OptionStatement{base, ..} => println!("OPTION BASE {}", base), 
 
         AstNode::ArrayDecl1{id, bound} => println!("{}[{}]", vars::id_to_array_name(*id), bound),
         AstNode::ArrayDecl2{id, bound1, bound2} => {
@@ -448,6 +452,10 @@ impl <'a> MatchContext<'a> {
     }
 
     pub fn expect_ast(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<AstNode>) -> ParseResult<AstNode> {
+        map_fn(self.expect(rule))
+    }
+
+    pub fn expect_ast_list(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<Vec<AstNode>>) -> ParseResult<Vec<AstNode>> {
         map_fn(self.expect(rule))
     }
 
@@ -604,16 +612,33 @@ impl AstBuilder {
             Rule::input_statement => Self::input_statement( p,line),
             Rule::let_statement => Self::let_statement( p,line),
             Rule::on_goto_statement => Self::on_goto_statement( p,line),
-            Rule::option_statement => Ok(AstNode::OptionStatement{line}),
+            Rule::option_statement => Self::option_statement( p,line),
             Rule::print_statement => Self::print_statement( p,line),
             Rule::randomize_statement => Ok(AstNode::RandomizeStatement{line}),
-            Rule::read_statement => Ok(AstNode::ReadStatement{line}),
+            Rule::read_statement => Self::read_statement( p,line),
             Rule::remark_statement => Ok(AstNode::RemarkStatement{line}),
             Rule::restore_statement => Ok(AstNode::RestoreStatement{line}),
             Rule::return_statement => Ok(AstNode::ReturnStatement{line}),
             Rule::stop_statement => Ok(AstNode::StopStatement{line}),
             _ => panic!("Not a statement, we should never reach here!")
         }
+    }
+
+    // read_statement = { "READ " ~ variable_list }
+    fn read_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let mut mc = MatchContext::new(pair);
+        let vars = mc.expect_ast_list(Rule::variable_list, Self::variable_list)?;
+        Ok(AstNode::ReadStatement{line, vars})
+    }
+
+    // option_statement = { "OPTION " ~ "BASE" ~ base }
+    // base = @{"0" | "1"}
+    fn option_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+        let mut mc = MatchContext::new(pair);
+
+        let base = mc.expect_as::<u16>(Rule::base);
+
+        Ok(AstNode::OptionStatement{line, base})
     }
 
     // on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
@@ -714,6 +739,11 @@ impl AstBuilder {
             var_list.push(Self::variable(p)?);
         }
         Ok(AstNode::InputStatement{line, vars: var_list})
+    }
+
+    // variable_list = { variable ~ ("," ~ variable)* }
+    fn variable_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
+        Ok(MatchContext::new(pair).expect_asts(Rule::variable, Self::variable)?)
     }
 
     // variable = { string_variable | numeric_variable }
