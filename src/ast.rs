@@ -413,7 +413,6 @@ pub fn collect_pairs(pair: Pair, rule: Rule) -> Vec<Pair> {
 
 pub fn collect_pairs_helper<'i>(pair: Pair<'i>, rule: Rule, pairs: &mut Vec<Pair<'i>>, level: i32)  {
     for p in pair.clone().into_inner() {
-        println!("Collect checking {:?} at level {}", p.as_rule(), level);
         if p.as_rule() == rule {
             pairs.push(p);
         } else {
