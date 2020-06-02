@@ -1,3 +1,11 @@
+pub enum Value {
+    StringValue(String),
+    NumberValue(f32),
+    ArrayValue(Vec<Value>)
+}
+
+
+
 fn id_to_char(id: usize) -> char {
     assert!(id < 26, format!("Index {} out of range 0..26", id));
     ((id as u8) + b'A') as char
