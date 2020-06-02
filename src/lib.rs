@@ -36,12 +36,16 @@ pub enum ParseError {
         #[from]
         source: std::io::Error,
     },
-    #[error("Error generating AST because {reason}")]
+    #[error("Error generating AST because {reason} at {start_pos}..{end_pos}")]
     AstError {
         reason: String,
         rule_type: parser::Rule,
         start_pos: usize,
         end_pos: usize    
+    },
+    #[error("Error {reason}")]
+    ValidationError {
+        reason: String 
     }
 }
 

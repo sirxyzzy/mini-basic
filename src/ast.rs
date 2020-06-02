@@ -421,25 +421,25 @@ pub fn collect_pairs_helper<'i>(pair: Pair<'i>, rule: Rule, pairs: &mut Vec<Pair
     }    
 }
 
-struct MatchContext<'a> {
+struct Matcher<'a> {
     pair: Pair<'a>,
     pairs: Pairs<'a>,
 }
 
-impl <'a> MatchContext<'a> {
+impl <'a> Matcher<'a> {
 
-    pub fn new(pair: Pair) -> MatchContext {
+    pub fn new(pair: Pair) -> Matcher {
         let pairs = pair.clone().into_inner();
-        MatchContext{ pair, pairs }
+        Matcher{ pair, pairs }
     }
 
-    pub fn new_expect(pair: Pair, expected_rule: Rule) -> MatchContext {
+    pub fn new_expect(pair: Pair, expected_rule: Rule) -> Matcher {
         let rule = pair.as_rule();
         if rule != expected_rule {
             panic!("Expected pair to be a {:?} but I found a {:?}", expected_rule, rule);
         }
         let pairs = pair.clone().into_inner();
-        MatchContext{ pair, pairs }
+        Matcher{ pair, pairs }
     }
 
     pub fn expect(&mut self, rule: Rule) -> Pair {
@@ -551,6 +551,50 @@ impl AstBuilder {
     pub fn build(pair: Pair, _options: &ParseOptions) -> ParseResult<AstNode> {
         Self::program(pair)
     }
+
+    pub fn validate_program(node: AstNode) -> ParseResult<()> {
+        // Apply program wide validations such as line number references
+        
+        let mut errors = 0;
+
+        match node {
+            AstNode::Program{lines} => {
+                for entry in lines.values() {
+                    match entry {
+                        AstNode::GotoStatement{line, line_ref, ..} => {
+                            if !lines.contains_key(line_ref) {
+                                error!("E1001 {} GOTO {} <- invalid line number", line, line_ref);
+                                errors += 1;
+                            }
+                        }
+                        AstNode::GosubStatement{line, line_ref, ..} => {
+                            if !lines.contains_key(line_ref) {
+                                error!("E1002 {} GOSUB {} <- invalid line number", line, line_ref);
+                                errors += 1;
+                            }
+                        }
+                        AstNode::OnGotoStatement{line, line_refs, ..} => {
+                            for line_ref in line_refs {
+                                if !lines.contains_key(line_ref) {
+                                    error!("E1003 {} ON GOTO {} <- invalid line number", line, line_ref);
+                                    errors += 1;
+                                }
+                            }
+                        }
+                        _ => ()
+                    }
+                }
+            }
+            _ => panic!("Not a program!")
+        }
+
+        if errors > 0 {
+            let reason = format!("{} errors, failing parse", errors);
+            Err(ParseError::ValidationError{reason})
+        } else {
+            Ok(())
+        }
+    }
     
     // program = ${ block ~ end_line }
     pub fn program(pair: Pair) -> ParseResult<AstNode> {
@@ -625,7 +669,7 @@ impl AstBuilder {
 
     // read_statement = { "READ " ~ variable_list }
     fn read_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let mut mc = MatchContext::new(pair);
+        let mut mc = Matcher::new(pair);
         let vars = mc.expect_ast_list(Rule::variable_list, Self::variable_list)?;
         Ok(AstNode::ReadStatement{line, vars})
     }
@@ -633,7 +677,7 @@ impl AstBuilder {
     // option_statement = { "OPTION " ~ "BASE" ~ base }
     // base = @{"0" | "1"}
     fn option_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let mut mc = MatchContext::new(pair);
+        let mut mc = Matcher::new(pair);
 
         let base = mc.expect_as::<u16>(Rule::base);
 
@@ -642,25 +686,25 @@ impl AstBuilder {
 
     // on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
     fn on_goto_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let mut mc = MatchContext::new(pair);
+        let mut mc = Matcher::new(pair);
         let expr = Box::new(mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?);
         let line_refs = mc.list_of::<u16>(Rule::line_number_ref);
         Ok(AstNode::OnGotoStatement{line, expr, line_refs})
     }
 
     fn gosub_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let line_ref = MatchContext::new(pair).expect_as(Rule::line_number_ref);
+        let line_ref = Matcher::new(pair).expect_as(Rule::line_number_ref);
         Ok(AstNode::GosubStatement{line, line_ref})
     }
 
     fn goto_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let line_ref = MatchContext::new(pair).expect_as(Rule::line_number_ref);
+        let line_ref = Matcher::new(pair).expect_as(Rule::line_number_ref);
         Ok(AstNode::GotoStatement{line, line_ref})
     }    
 
     // def_statement = { "DEF " ~ numeric_defined_function ~ parameter_list? ~ "=" ~ numeric_expression }
     fn def_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let mut mc = MatchContext::new(pair);
+        let mut mc = Matcher::new(pair);
 
         let name = mc.expect_as_string(Rule::numeric_defined_function);
         let parameters: Option<Vec<usize>> =
@@ -677,7 +721,7 @@ impl AstBuilder {
 
     // data_statement = { "DATA " ~ datum ~ ("," ~ datum)* }
     fn data_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let list = MatchContext::new(pair).expect_asts(Rule::datum, Self::datum)?;
+        let list = Matcher::new(pair).expect_asts(Rule::datum, Self::datum)?;
         Ok(AstNode::DataStatement{line, datums: list})
     }
 
@@ -694,7 +738,7 @@ impl AstBuilder {
 
     // dimension_statement = { "DIM " ~ array_declaration ~ ("," ~ array_declaration)* }
     fn dimension_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
-        let list = MatchContext::new(pair).expect_asts(Rule::array_declaration, Self::array_declaration)?;
+        let list = Matcher::new(pair).expect_asts(Rule::array_declaration, Self::array_declaration)?;
         Ok(AstNode::DimensionStatement{line, declarations: list})
     }
 
@@ -742,7 +786,7 @@ impl AstBuilder {
 
     // variable_list = { variable ~ ("," ~ variable)* }
     fn variable_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
-        Ok(MatchContext::new(pair).expect_asts(Rule::variable, Self::variable)?)
+        Ok(Matcher::new(pair).expect_asts(Rule::variable, Self::variable)?)
     }
 
     // variable = { string_variable | numeric_variable }
@@ -768,7 +812,7 @@ impl AstBuilder {
 
     // print_list = { (print_item? ~ print_separator)* ~ print_item? }
     fn print_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
-        MatchContext::new(pair).all_asts(|p| {
+        Matcher::new(pair).all_asts(|p| {
             match p.as_rule() {
                 Rule::print_item => Ok(Self::print_item(p)?),
                 Rule::print_separator => Ok(Self::print_separator(p)?),
@@ -958,8 +1002,6 @@ impl AstBuilder {
     }
 
     pub fn numeric_rep(pair: Pair) -> ParseResult<AstNode> {
-        // I don't understand why, but sometimes I get whitespace around my number
-        // which breaks the parse, so I trim!
         let v= parse_pair::<f64>(pair);
         Ok(AstNode::NumVal(v))
     }
