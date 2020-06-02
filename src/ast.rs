@@ -3,7 +3,7 @@
 use super::parser::{ Pair, Pairs, Rule};
 use super::*;
 use std::error::Error;
-use std::collections::BTreeMap;
+use std::collections::HashSet;
 use vars;
 use std::str::FromStr;
 use itertools::Itertools;
@@ -13,7 +13,7 @@ use itertools::Itertools;
 #[derive(Debug)]
 pub enum AstNode {
     Program {
-        lines: BTreeMap<u16, AstNode>
+        lines: Vec<AstNode>
     },
 
     // All statements have a line number
@@ -172,7 +172,7 @@ impl OpCode {
 //
 // If I am a statement, provide the line number
 //
-pub fn statement_line_number(node: &AstNode) -> Option<u16> {
+pub fn get_line_number_maybe(node: &AstNode) -> Option<u16> {
     match node {
         AstNode::DataStatement{ line,..} |
         AstNode::DefStatement{ line, .. } |
@@ -198,11 +198,17 @@ pub fn statement_line_number(node: &AstNode) -> Option<u16> {
     }
 }
 
+/// A convenience to get a line number assuming we have a line!
+pub fn get_line_number(node: &AstNode) -> u16 {
+    get_line_number_maybe(node).unwrap()
+}
+
+
 //
 // Am I a statement, yes if I have a line number!
 //
 pub fn is_statement(node: &AstNode) -> bool {
-    match statement_line_number(node) {
+    match get_line_number_maybe(node) {
         Some(_) => true,
         None => false
     }
@@ -249,7 +255,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         AstNode::Program{lines} => {
             println!("Program");
             for line in lines.iter() {
-                print_ast_helper(&format!("{:4}", line.0), line.1, level+1);
+                print_ast_helper(&format!("{:4}", get_line_number(line)), line, level+1);
             }
         }
 
@@ -559,23 +565,26 @@ impl AstBuilder {
 
         match node {
             AstNode::Program{lines} => {
-                for entry in lines.values() {
+                let line_numbers: HashSet<u16> = 
+                    lines.iter().map(|l| get_line_number(l)).collect();
+
+                for entry in lines.iter() {
                     match entry {
                         AstNode::GotoStatement{line, line_ref, ..} => {
-                            if !lines.contains_key(line_ref) {
+                            if !line_numbers.contains(line_ref) {
                                 error!("E1001 {} GOTO {} <- invalid line number", line, line_ref);
                                 errors += 1;
                             }
                         }
                         AstNode::GosubStatement{line, line_ref, ..} => {
-                            if !lines.contains_key(line_ref) {
+                            if !line_numbers.contains(line_ref) {
                                 error!("E1002 {} GOSUB {} <- invalid line number", line, line_ref);
                                 errors += 1;
                             }
                         }
                         AstNode::OnGotoStatement{line, line_refs, ..} => {
                             for line_ref in line_refs {
-                                if !lines.contains_key(line_ref) {
+                                if !line_numbers.contains(line_ref) {
                                     error!("E1003 {} ON GOTO {} <- invalid line number", line, line_ref);
                                     errors += 1;
                                 }
@@ -602,19 +611,13 @@ impl AstBuilder {
 
         let mut pairs = pair.into_inner();
 
-        let lines = Self::block(pairs.next().unwrap())?;
-        
-        let mut line_map = BTreeMap::new();
-
-        lines.into_iter().for_each(|l| {
-            line_map.insert(statement_line_number(&l).unwrap(), l);
-        });
+        let mut lines = Self::block(pairs.next().unwrap())?;
 
         let end = Self::end_statement(pairs.next().unwrap())?;
 
-        line_map.insert(statement_line_number(&end).unwrap(), end);
+        lines.push( end);
 
-        Ok(AstNode::Program{lines:line_map})
+        Ok(AstNode::Program{lines})
     }
 
     // block = ${ (line | for_block)* }

@@ -16,6 +16,7 @@ extern crate itertools;
 mod parser;
 mod ast;
 mod vars;
+mod interpret;
 
 use thiserror::Error;
 use std::path::Path;
@@ -31,11 +32,13 @@ pub enum ParseError {
         #[from]
         source: pest::error::Error<parser::Rule>,      
     },
+
     #[error("Error reading file: {source}")]
     Io {
         #[from]
         source: std::io::Error,
     },
+
     #[error("Error generating AST because {reason} at {start_pos}..{end_pos}")]
     AstError {
         reason: String,
@@ -43,10 +46,17 @@ pub enum ParseError {
         start_pos: usize,
         end_pos: usize    
     },
+
     #[error("Error {reason}")]
     ValidationError {
         reason: String 
-    }
+    },
+
+    #[error("Error {reason}")]
+    RuntimeError {
+        reason: String,
+        line_number: u16
+    },
 }
 
 pub struct ParseOptions {
@@ -74,6 +84,11 @@ pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> ParseResu
     if options.show_ast {
         ast::print_ast(&ast);
     }
+
+    trace!("Executing program");
+    let mut runner = interpret::Runner::new(ast);
+
+    runner.run();
 
     Ok(())
 }
