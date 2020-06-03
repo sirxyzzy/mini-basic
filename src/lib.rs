@@ -1,17 +1,15 @@
 #![allow(dead_code)]
 
 extern crate pest;
+extern crate thiserror;
+extern crate itertools;
+extern crate rand;
 
 #[macro_use]
 extern crate pest_derive;
 
 #[macro_use]
 extern crate log;
-
-extern crate thiserror;
-
-extern crate itertools;
-
 
 mod parser;
 mod ast;
@@ -51,11 +49,8 @@ pub enum Error {
         reason: String 
     },
 
-    #[error("Error {reason}")]
-    RuntimeError {
-        reason: String,
-        line_number: u16
-    },
+    #[error("Error {0} on line {1}")]
+    RuntimeError (String, u16)
 }
 
 pub struct ParseOptions {
