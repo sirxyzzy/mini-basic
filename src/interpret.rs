@@ -1,8 +1,9 @@
 use super::*;
 use super::ast::*;
 use std::collections::{HashMap};
+use std::cell::RefCell;
 
-#[derive(PartialEq,Debug)]
+#[derive(PartialEq,Debug,Clone)]
 pub enum State {
     Running, Stopped, Ended, Error(String)
 }
@@ -12,8 +13,13 @@ type Number = f64;
 pub struct Runner {
     lines: Vec<AstNode>,
     line_index: HashMap<u16, usize>,
+
+    state: RefCell<ProgramState>
+}
+
+pub struct ProgramState {
     current: usize,  // index into lines...
-    state: State,
+    run_state: State,
     call_stack: Vec<usize>,
     numeric_vars: Vec<Option<Number>>,
     array_vars: Vec<Option<Vec<Number>>>,
@@ -21,7 +27,35 @@ pub struct Runner {
     string_vars: Vec<Option<String>>,
 }
 
+impl ProgramState {
+
+}
+
 impl Runner {
+    fn run_state(&self) -> State {
+        self.state.borrow().run_state.clone()
+    }
+
+    fn set_run_state(&self, state: State) {
+        self.state.borrow_mut().run_state = state;
+    }
+
+    fn current(&self) -> usize {
+        self.state.borrow().current
+    }
+
+    fn set_current(&self, current: usize) {
+        self.state.borrow_mut().current = current;
+    }
+
+    fn push(&self, index: usize) {
+        self.state.borrow_mut().call_stack.push(index)
+    }
+
+    fn pop(&self) -> Option<usize> {
+        self.state.borrow_mut().call_stack.pop()
+    }
+
     pub fn new(program: AstNode) -> Runner {
         let lines = 
             match program { 
@@ -35,58 +69,70 @@ impl Runner {
         Runner { 
             lines, 
             line_index, 
-            current:0, 
-            state:State::Stopped, 
-            call_stack: Vec::new(),
-            numeric_vars: vec![None; 11*26],
-            array_vars: vec![None; 26],
-            array_vars2: vec![None; 26],
-            string_vars: vec![None; 26] 
+            state: RefCell::new(ProgramState  {
+                current:0, 
+                run_state:State::Stopped, 
+                call_stack: Vec::new(),
+                numeric_vars: vec![None; 11*26],
+                array_vars: vec![None; 26],
+                array_vars2: vec![None; 26],
+                string_vars: vec![None; 26] }) 
         }
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&self) -> Result<()> {
         // Normally we execute lines in order, so we use an iterator,
         // which we reset any time we do a jump
-        self.state = State::Running;
-        self.current = 0;     
+        {
+            let mut state = self.state.borrow_mut();
 
-        while self.state == State::Running {
-            self.run_line()?; // Run line updates "current"
+            // Initial state
+            state.run_state = State::Running;
+            state.current = 0;     
         }
+
+        while self.run_line()? == State::Running {
+            // Keep running more lines...
+        }
+
         Ok(())
     }
 
-    fn stop_running(&mut self, reason: &str) {
-        self.state = State::Error(reason.to_string());
+    fn stop_running(&self, reason: &str) {
+        self.set_run_state(State::Error(reason.to_string()))
     }
 
-    fn set_current_line_number(&mut self, line_number: u16) -> Result<()> {
+    fn set_current_line_number(&self, line_number: u16) -> Result<()> {
         let index = self.line_number_to_index(line_number)?;
-        self.current = index;
+        self.set_current( index);
         Ok(())
     }
 
-    fn run_line(&mut self) -> Result<()> {
-        trace!("Running line {} [{}]", self.current_line_number(), self.current);
 
-        let mut next_index = self.current + 1;
 
-        let line = self.lines[self.current];
+    fn run_line(&self) -> Result<State> {
+        trace!("Running line {} [{}]", self.current_line_number(), self.current());
+
+        let current = self.current();
+
+        let mut next_index = current + 1;
+
+        let line = &self.lines[current];
+
 
         match line {
             AstNode::EndStatement{..} => {
-                self.state = State::Ended;
+                self.set_run_state(State::Ended);
             }
             AstNode::GotoStatement{line_ref, ..} => {
-                next_index = self.line_number_to_index(line_ref)?;
+                next_index = self.line_number_to_index(*line_ref)?;
             }
             AstNode::GosubStatement{line_ref, ..} => {
-                next_index = self.line_number_to_index(line_ref)?;
-                self.call_stack.push(self.current);
+                next_index = self.line_number_to_index(*line_ref)?;
+                self.push(self.current());
             }
             AstNode::ReturnStatement{..} => {
-                match self.call_stack.pop() {
+                match self.pop() {
                     Some(v) => next_index = v,
                     None => self.stop_running("Returned too many times! Stack empty"),
                 }
@@ -106,33 +152,33 @@ impl Runner {
                         AstNode::PrintComma => print!("\t"),
                         AstNode::PrintSemi =>  print!(" "),
                         AstNode::TabCall(_) => (),
-                        _ => return Err(self.runtime_error_unimplemented())
+                        x => return Err(self.runtime_unexpected_node(&x))
                     }
                 }
             }
-            x => return Err(self.runtime_unexpected_node(x))
+            x => return Err(self.runtime_unexpected_node(&x))
         }
 
         assert!(next_index < self.lines.len(), "Should never fall off end!");
 
-        trace!("Stepping from {} to {}", self.current, next_index);
-        self.current = next_index;
+        trace!("Stepping from {} to {}", self.current(), next_index);
+        self.set_current(next_index);
 
-        match &self.state {
+        match self.run_state() {
             State::Error(r) => {
                 error!("Runtime error");
                 Err(Error::RuntimeError(r.clone(), self.current_line_number()) )
             }
 
-            State::Running => Ok(()),
+            State::Running => Ok(State::Running),
 
             State::Ended => {
                 info!("Ended");
-                Ok(())
+                Ok(State::Ended)
             }
             State::Stopped => {
                 info!("Stopped");
-                Ok(())                
+                Ok(State::Stopped)                
             }
         }
     }
@@ -203,7 +249,7 @@ impl Runner {
     }
 
     pub fn current_line_number(&self) -> u16 {
-        get_line_number(&self.lines[self.current])
+        get_line_number(&self.lines[self.current()])
     }
 
     fn index_to_line_number(&self, index: usize) -> Result<u16> {
@@ -227,7 +273,7 @@ impl Runner {
 
     fn get_array_var(&self, var_index: usize, index: Number) -> Result<Number> {
         assert!(var_index < 26);
-        match &self.array_vars[var_index] {
+        match &self.state.borrow().array_vars[var_index] {
             Some(v) => Ok(v[self.check_index(index, v.len())?]),
             None => Err(self.runtime_error("Trying to access uninitialized variable"))
         }
@@ -235,7 +281,7 @@ impl Runner {
 
     fn get_array_var2(&self, var_index: usize, index1: Number, index2: Number) -> Result<Number> {
         assert!(var_index < 26);
-        match &self.array_vars2[var_index] {
+        match &self.state.borrow().array_vars2[var_index] {
             Some(v) => {
                 let v2 = &v[self.check_index(index1, v.len())?];
                 Ok(v2[self.check_index(index2, v2.len())?]) 
@@ -247,21 +293,21 @@ impl Runner {
     fn get_num_var(&self, index: usize) -> Result<Number> {
         assert!(index < 11 * 26);
 
-        match self.numeric_vars[index] {
+        match self.state.borrow().numeric_vars[index] {
             Some(v) => Ok(v),
             None => Err(self.runtime_error("Trying to access uninitialized variable"))
         }
     }
 
-    fn set_num_var(&mut self, index: usize, value: Number) {
+    fn set_num_var(&self, index: usize, value: Number) {
         assert!(index < 11 * 26);
 
-        self.numeric_vars[index] = Some(value);
+        self.state.borrow_mut().numeric_vars[index] = Some(value);
     }
 
-    fn set_string_var(&mut self, index: usize, value: String) {
+    fn set_string_var(&self, index: usize, value: String) {
         assert!(index < 11 * 26);
 
-        self.string_vars[index] = Some(value);
+        self.state.borrow_mut().string_vars[index] = Some(value);
     }
 }

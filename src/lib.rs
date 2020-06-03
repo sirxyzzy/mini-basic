@@ -80,7 +80,7 @@ pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()
     }
 
     trace!("Executing program");
-    let mut runner = interpret::Runner::new(ast);
+    let runner = interpret::Runner::new(ast);
 
     runner.run()?;
 
