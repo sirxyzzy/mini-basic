@@ -734,7 +734,7 @@ impl AstBuilder {
         match p.as_rule() {
             Rule::quoted_string => Ok(Self::quoted_string(p)?),
             Rule::unquoted_string => Ok(Self::unquoted_string(p)?),
-            _ => panic!("print separator {:?}", p)
+            _ => panic!("datum, not a string (quoted or unquoted) {:?}", p)
         }
     }
 
@@ -847,7 +847,7 @@ impl AstBuilder {
         let p = first_child(pair);
 
         match p.as_rule() {
-            Rule::numeric_expression => Ok(Self::numeric_expression(p)?),
+            Rule::numeric_expression => Ok(AstNode::TabCall(Box::new(Self::numeric_expression(p)?))),
             _ => panic!("tab_call {:?}", p)
         }
     }

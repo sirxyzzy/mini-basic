@@ -72,15 +72,17 @@ impl Runner {
 
         let mut next_index = self.current + 1;
 
-        match &self.lines[self.current] {
+        let line = self.lines[self.current];
+
+        match line {
             AstNode::EndStatement{..} => {
                 self.state = State::Ended;
             }
             AstNode::GotoStatement{line_ref, ..} => {
-                next_index = self.line_number_to_index(*line_ref)?;
+                next_index = self.line_number_to_index(line_ref)?;
             }
             AstNode::GosubStatement{line_ref, ..} => {
-                next_index = self.line_number_to_index(*line_ref)?;
+                next_index = self.line_number_to_index(line_ref)?;
                 self.call_stack.push(self.current);
             }
             AstNode::ReturnStatement{..} => {
@@ -90,14 +92,25 @@ impl Runner {
                 }
             }
             AstNode::LetStatement{var, val, ..} => {
-                match var.as_ref() {
+                let v = var.as_ref(); 
+                match v {
                     AstNode::NumRef(id) => {
-                        self.set_num_var(*id, self.eval(val.as_ref())?);
+                        self.set_num_var(*id, self.eval_numeric(val.as_ref())?);
                     }
-                    _ => return Err(self.runtime_error_unimplemented())
+                    x => return Err(self.runtime_unexpected_node(x))
                 }
             }
-            _ => return Err(self.runtime_error_unimplemented())
+            AstNode::PrintStatement{items, ..} => {
+                for item in items {
+                    match item {
+                        AstNode::PrintComma => print!("\t"),
+                        AstNode::PrintSemi =>  print!(" "),
+                        AstNode::TabCall(_) => (),
+                        _ => return Err(self.runtime_error_unimplemented())
+                    }
+                }
+            }
+            x => return Err(self.runtime_unexpected_node(x))
         }
 
         assert!(next_index < self.lines.len(), "Should never fall off end!");
@@ -124,7 +137,7 @@ impl Runner {
         }
     }
 
-    fn eval(&self, expression: &AstNode) -> Result<Number> {
+    fn eval_numeric(&self, expression: &AstNode) -> Result<Number> {
         match expression {
             AstNode::BinOp{op, left, right} => self.eval_binop(op, left, right),
             AstNode::MonOp{op, arg} => self.eval_monop(op, arg),
@@ -132,10 +145,10 @@ impl Runner {
     
             AstNode::NumVal(x) => Ok(*x),
             AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
-            AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.eval(index)?),
+            AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.eval_numeric(index)?),
             AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
-                                                            self.eval(index1)?,
-                                                            self.eval(index2)?), 
+                                                            self.eval_numeric(index1)?,
+                                                            self.eval_numeric(index2)?), 
 
             x => panic!("Unexpected node in expression {:?} as bin_op", x)
         }
@@ -144,17 +157,17 @@ impl Runner {
 
     fn eval_binop(&self, op: &OpCode, left: &AstNode, right: &AstNode) -> Result<Number> {
         match op {
-            OpCode::Plus => Ok(self.eval(left)? + self.eval(right)?),
-            OpCode::Minus => Ok(self.eval(left)? - self.eval(right)?),
-            OpCode::Multiply => Ok(self.eval(left)? * self.eval(right)?),
-            OpCode::Divide => Ok(self.eval(left)? / self.eval(right)?),
-            OpCode::Pow => Ok(self.eval(left)?.powf(self.eval(right)?)),
+            OpCode::Plus => Ok(self.eval_numeric(left)? + self.eval_numeric(right)?),
+            OpCode::Minus => Ok(self.eval_numeric(left)? - self.eval_numeric(right)?),
+            OpCode::Multiply => Ok(self.eval_numeric(left)? * self.eval_numeric(right)?),
+            OpCode::Divide => Ok(self.eval_numeric(left)? / self.eval_numeric(right)?),
+            OpCode::Pow => Ok(self.eval_numeric(left)?.powf(self.eval_numeric(right)?)),
             o => panic!("Unexpected op {:?} as bin_op", o)
         }
     }
 
     fn eval_monop(&self, op: &OpCode, operand: &AstNode) -> Result<Number> {
-        let v = self.eval(operand)?;
+        let v = self.eval_numeric(operand)?;
         match op {
             OpCode::Abs => Ok(v.abs()),
             OpCode::Atn => Ok(v.atan()),
@@ -183,6 +196,10 @@ impl Runner {
 
     fn runtime_error_unimplemented(&self) -> Error {
         Error::RuntimeError("unimplemented".to_string(), self.current_line_number() )
+    }
+
+    fn runtime_unexpected_node(&self, node: &AstNode) -> Error {
+        Error::RuntimeError(format!("unexpected node {:?}", node), self.current_line_number() )
     }
 
     pub fn current_line_number(&self) -> u16 {
