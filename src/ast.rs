@@ -2,7 +2,6 @@
 
 use super::parser::{ Pair, Pairs, Rule};
 use super::*;
-use std::error::Error;
 use std::collections::HashSet;
 use vars;
 use std::str::FromStr;
@@ -339,10 +338,10 @@ pub struct AstBuilder {
     // Somewhere to store side effects such as variables
 }
 
-impl ParseError {
-    fn from_error<E: Error>(error: E, pair: &Pair) -> ParseError {
+impl Error {
+    fn from_error<E: std::error::Error>(error: E, pair: &Pair) -> Error {
         let span = pair.as_span();
-        ParseError::AstError{
+        Error::AstError{
             reason: error.to_string(),
             rule_type: pair.as_rule(),
             start_pos: span.start_pos().pos(),
@@ -350,9 +349,9 @@ impl ParseError {
         }
     }
 
-    fn new(reason: &str, pair: &Pair) -> ParseError {
+    fn new(reason: &str, pair: &Pair) -> Error {
         let span = pair.as_span();
-        ParseError::AstError{
+        Error::AstError{
             reason: format!("{} {:?}", reason, pair.as_rule()),
             rule_type: pair.as_rule(),
             start_pos: span.start_pos().pos(),
@@ -360,15 +359,15 @@ impl ParseError {
         }
     }
 
-    fn expected(expected:Rule, actual: Option<Rule>, location: &Pair) -> ParseError {
+    fn expected(expected:Rule, actual: Option<Rule>, location: &Pair) -> Error {
         Self::new(&format!("Got {:?} but expected {:?} in", actual, expected), location)
     }  
 
-    fn unexpected(context: &str, pair: &Pair) -> ParseError {
+    fn unexpected(context: &str, pair: &Pair) -> Error {
         Self::new(&format!("Expected {} in", context), pair)
     }
 
-    fn not_implemented(pair: &Pair) -> ParseError {
+    fn not_implemented(pair: &Pair) -> Error {
         Self::new("Not implemented", pair)
     }
 }
@@ -456,11 +455,11 @@ impl <'a> Matcher<'a> {
         }
     }
 
-    pub fn expect_ast(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<AstNode>) -> ParseResult<AstNode> {
+    pub fn expect_ast(&mut self, rule: Rule, map_fn: fn(Pair) -> Result<AstNode>) -> Result<AstNode> {
         map_fn(self.expect(rule))
     }
 
-    pub fn expect_ast_list(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<Vec<AstNode>>) -> ParseResult<Vec<AstNode>> {
+    pub fn expect_ast_list(&mut self, rule: Rule, map_fn: fn(Pair) -> Result<Vec<AstNode>>) -> Result<Vec<AstNode>> {
         map_fn(self.expect(rule))
     }
 
@@ -475,7 +474,7 @@ impl <'a> Matcher<'a> {
     /// Helper, build a list of ASTs, from the children of a given node
     /// Only process children of a given type
     /// Pass an AstBuilder function (or closure) to process each element
-    fn expect_asts(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<AstNode>) -> ParseResult<Vec<AstNode>> {
+    fn expect_asts(&mut self, rule: Rule, map_fn: fn(Pair) -> Result<AstNode>) -> Result<Vec<AstNode>> {
         let mut list: Vec<AstNode> = Vec::new();
         for p in &mut self.pairs {
             if p.as_rule() == rule {
@@ -498,7 +497,7 @@ impl <'a> Matcher<'a> {
         list
     }
 
-    fn all_asts(&mut self, map_fn: fn(Pair) -> ParseResult<AstNode>) -> ParseResult<Vec<AstNode>> {
+    fn all_asts(&mut self, map_fn: fn(Pair) -> Result<AstNode>) -> Result<Vec<AstNode>> {
         let mut list: Vec<AstNode> = Vec::new();
     
         for p in &mut self.pairs {
@@ -522,7 +521,7 @@ impl <'a> Matcher<'a> {
         }
     }
 
-    pub fn maybe_expect_ast(&mut self, rule: Rule, map_fn: fn(Pair) -> ParseResult<AstNode>) -> Option<AstNode> {
+    pub fn maybe_expect_ast(&mut self, rule: Rule, map_fn: fn(Pair) -> Result<AstNode>) -> Option<AstNode> {
         match self.maybe_expect(rule) {
             Some(p) => map_fn(p).ok(),
             None => None,
@@ -554,11 +553,11 @@ pub fn assert_rule(pair: &Pair, expected: Rule) {
 
 impl AstBuilder {   
     // Main entry point, build the AST for a whole program
-    pub fn build(pair: Pair, _options: &ParseOptions) -> ParseResult<AstNode> {
+    pub fn build(pair: Pair, _options: &ParseOptions) -> Result<AstNode> {
         Self::program(pair)
     }
 
-    pub fn validate_program(node: AstNode) -> ParseResult<()> {
+    pub fn validate_program(node: AstNode) -> Result<()> {
         // Apply program wide validations such as line number references
         
         let mut errors = 0;
@@ -599,14 +598,14 @@ impl AstBuilder {
 
         if errors > 0 {
             let reason = format!("{} errors, failing parse", errors);
-            Err(ParseError::ValidationError{reason})
+            Err(Error::ValidationError{reason})
         } else {
             Ok(())
         }
     }
     
     // program = ${ block ~ end_line }
-    pub fn program(pair: Pair) -> ParseResult<AstNode> {
+    pub fn program(pair: Pair) -> Result<AstNode> {
         assert_rule(&pair, Rule::program);
 
         let mut pairs = pair.into_inner();
@@ -621,7 +620,7 @@ impl AstBuilder {
     }
 
     // block = ${ (line | for_block)* }
-    pub fn block(pair: Pair) -> ParseResult<Vec<AstNode>> {
+    pub fn block(pair: Pair) -> Result<Vec<AstNode>> {
         assert_rule(&pair, Rule::block);
 
         let mut lines: Vec<AstNode> = Vec::new(); 
@@ -636,7 +635,7 @@ impl AstBuilder {
     }
     
     // line = !{ line_number ~ statement ~ end_of_line }
-    pub fn line(pair: Pair) -> ParseResult<AstNode> {
+    pub fn line(pair: Pair) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
         let line = Self::line_number(pairs.next().unwrap());
         let statement = Self::statement(pairs.next().unwrap(), line)?;
@@ -646,7 +645,7 @@ impl AstBuilder {
     //
     // Statements have a single child, the parse tree for a particular statement
     //
-    pub fn statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    pub fn statement(pair: Pair, line: u16) -> Result<AstNode> {
         let p = first_child(pair);
         match p.as_rule() {
             Rule::data_statement => Self::data_statement(p, line),
@@ -671,7 +670,7 @@ impl AstBuilder {
     }
 
     // read_statement = { "READ " ~ variable_list }
-    fn read_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn read_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
         let vars = mc.expect_ast_list(Rule::variable_list, Self::variable_list)?;
         Ok(AstNode::ReadStatement{line, vars})
@@ -679,7 +678,7 @@ impl AstBuilder {
 
     // option_statement = { "OPTION " ~ "BASE" ~ base }
     // base = @{"0" | "1"}
-    fn option_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn option_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
 
         let base = mc.expect_as::<u16>(Rule::base);
@@ -688,25 +687,25 @@ impl AstBuilder {
     }
 
     // on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
-    fn on_goto_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn on_goto_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
         let expr = Box::new(mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?);
         let line_refs = mc.list_of::<u16>(Rule::line_number_ref);
         Ok(AstNode::OnGotoStatement{line, expr, line_refs})
     }
 
-    fn gosub_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn gosub_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let line_ref = Matcher::new(pair).expect_as(Rule::line_number_ref);
         Ok(AstNode::GosubStatement{line, line_ref})
     }
 
-    fn goto_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn goto_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let line_ref = Matcher::new(pair).expect_as(Rule::line_number_ref);
         Ok(AstNode::GotoStatement{line, line_ref})
     }    
 
     // def_statement = { "DEF " ~ numeric_defined_function ~ parameter_list? ~ "=" ~ numeric_expression }
-    fn def_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn def_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
 
         let name = mc.expect_as_string(Rule::numeric_defined_function);
@@ -723,13 +722,13 @@ impl AstBuilder {
     }
 
     // data_statement = { "DATA " ~ datum ~ ("," ~ datum)* }
-    fn data_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn data_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let list = Matcher::new(pair).expect_asts(Rule::datum, Self::datum)?;
         Ok(AstNode::DataStatement{line, datums: list})
     }
 
     // datum = { quoted_string | unquoted_string }
-    fn datum(pair: Pair) -> ParseResult<AstNode> {
+    fn datum(pair: Pair) -> Result<AstNode> {
         let p = first_child(pair);
 
         match p.as_rule() {
@@ -740,14 +739,14 @@ impl AstBuilder {
     }
 
     // dimension_statement = { "DIM " ~ array_declaration ~ ("," ~ array_declaration)* }
-    fn dimension_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn dimension_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let list = Matcher::new(pair).expect_asts(Rule::array_declaration, Self::array_declaration)?;
         Ok(AstNode::DimensionStatement{line, declarations: list})
     }
 
     // array_declaration = { numeric_array_name ~ "(" ~ bounds ~ ")" }
     // bounds = { integer ~ ("," ~ integer)? }
-    fn array_declaration(pair: Pair) -> ParseResult<AstNode> {
+    fn array_declaration(pair: Pair) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
         // The id for the array
@@ -776,7 +775,7 @@ impl AstBuilder {
 
     // input_statement = { "INPUT " ~ variable_list }
     // variable_list = { variable ~ ("," ~ variable)* }
-    fn input_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn input_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut var_list: Vec<AstNode> = Vec::new();
 
         let list_pair = first_child(pair);
@@ -788,12 +787,12 @@ impl AstBuilder {
     }
 
     // variable_list = { variable ~ ("," ~ variable)* }
-    fn variable_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
+    fn variable_list(pair: Pair) -> Result<Vec<AstNode>> {
         Ok(Matcher::new(pair).expect_asts(Rule::variable, Self::variable)?)
     }
 
     // variable = { string_variable | numeric_variable }
-    fn variable(pair: Pair) -> ParseResult<AstNode> {
+    fn variable(pair: Pair) -> Result<AstNode> {
         let child = first_child(pair);
         match child.as_rule() {
             Rule::string_variable => Ok(Self::string_variable(child)?),
@@ -803,7 +802,7 @@ impl AstBuilder {
     }
 
     // print_statement = { ("PRINT " ~ print_list) | "PRINT" }
-    fn print_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn print_statement(pair: Pair, line: u16) -> Result<AstNode> {
         match pair.into_inner().peek() {
             None => Ok(AstNode::PrintStatement{line, items: Vec::new()}),
             Some(child) => {
@@ -814,7 +813,7 @@ impl AstBuilder {
     }
 
     // print_list = { (print_item? ~ print_separator)* ~ print_item? }
-    fn print_list(pair: Pair) -> ParseResult<Vec<AstNode>> {
+    fn print_list(pair: Pair) -> Result<Vec<AstNode>> {
         Matcher::new(pair).all_asts(|p| {
             match p.as_rule() {
                 Rule::print_item => Ok(Self::print_item(p)?),
@@ -824,7 +823,7 @@ impl AstBuilder {
         })
     }
 
-    fn print_separator(pair: Pair) -> ParseResult<AstNode> {
+    fn print_separator(pair: Pair) -> Result<AstNode> {
         match pair.as_str() {
             "," => Ok(AstNode::PrintComma),
             ";" => Ok(AstNode::PrintSemi),
@@ -833,7 +832,7 @@ impl AstBuilder {
     }
 
     // print_item = { tab_call | expression }
-    fn print_item(pair: Pair) -> ParseResult<AstNode> {
+    fn print_item(pair: Pair) -> Result<AstNode> {
         let p = first_child(pair);
 
         match p.as_rule() {
@@ -844,7 +843,7 @@ impl AstBuilder {
     }
 
     // tab_call = { "TAB" ~ "(" ~ numeric_expression ~ ")" }
-    fn tab_call(pair: Pair) -> ParseResult<AstNode> {
+    fn tab_call(pair: Pair) -> Result<AstNode> {
         let p = first_child(pair);
 
         match p.as_rule() {
@@ -854,7 +853,7 @@ impl AstBuilder {
     }
 
     // if_then_statement = { "IF " ~ relational_expression ~ "THEN" ~ line_number_ref }
-    fn if_then_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn if_then_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let (rel_pair,line_pair) = first_two_children(pair);
         let expr = Box::new(Self::relational_expression(rel_pair)?);
         let then = Self::line_number(line_pair);
@@ -863,7 +862,7 @@ impl AstBuilder {
 
     // relational_expression = { (numeric_expression ~ relation ~ numeric_expression) 
     //    | (string_expression ~ equality_relation ~ string_expression) }
-    fn relational_expression(pair: Pair) -> ParseResult<AstNode> {
+    fn relational_expression(pair: Pair) -> Result<AstNode> {
 
         let (left_pair, rel, right_pair) = first_three_children(pair);
 
@@ -887,7 +886,7 @@ impl AstBuilder {
     // let_statement = { numeric_let_statement | string_let_statement }
     // numeric_let_statement   = { "LET " ~ numeric_variable ~ "=" ~ numeric_expression }
     // string_let_statement = { "LET " ~ string_variable  ~ "=" ~ string_expression }
-    fn let_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    fn let_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let p = first_child(pair);
         match p.as_rule() {
             Rule::numeric_let_statement => {
@@ -914,7 +913,7 @@ impl AstBuilder {
     //
 
     // for_block = { for_line ~ for_body }
-    pub fn for_block(pair: Pair) -> ParseResult<Vec<AstNode>> {
+    pub fn for_block(pair: Pair) -> Result<Vec<AstNode>> {
         let mut lines: Vec<AstNode> = Vec::new();
 
         let mut pairs = pair.into_inner();
@@ -932,7 +931,7 @@ impl AstBuilder {
     }
 
     // for_line = !{ line_number ~ for_statement ~ end_of_line }
-    pub fn for_line(pair: Pair) -> ParseResult<AstNode> {
+    pub fn for_line(pair: Pair) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
         let line = Self::line_number(pairs.next().unwrap());
@@ -941,7 +940,7 @@ impl AstBuilder {
     }
 
     // for_statement = { "FOR" ~ simple_numeric_variable ~  "=" ~ numeric_expression  ~ "TO" ~ numeric_expression ~ ( "STEP" ~ numeric_expression)?  }
-    pub fn for_statement(pair: Pair, line: u16) -> ParseResult<AstNode> {
+    pub fn for_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
         let id = vars::num_name_to_id(pairs.next().unwrap().as_str());
@@ -958,7 +957,7 @@ impl AstBuilder {
     }
 
     // for_body { block ~ next_line }
-    pub fn for_body(pair: Pair, for_line: u16, id: usize) -> ParseResult<Vec<AstNode>> {
+    pub fn for_body(pair: Pair, for_line: u16, id: usize) -> Result<Vec<AstNode>> {
         let mut pairs = pair.into_inner();
 
         let mut lines = Self::block(pairs.next().unwrap())?;
@@ -971,7 +970,7 @@ impl AstBuilder {
 
     // next_line = !{ line_number ~ next_statement ~ end_of_line }
     // next_statement = { "NEXT" ~ simple_numeric_variable }
-    pub fn next_line(pair: Pair, expected_id: usize, for_line: u16) -> ParseResult<AstNode> {
+    pub fn next_line(pair: Pair, expected_id: usize, for_line: u16) -> Result<AstNode> {
         let mut pairs = pair.clone().into_inner();
 
         let line = Self::line_number(pairs.next().unwrap());
@@ -983,7 +982,7 @@ impl AstBuilder {
         if expected_id != id {
             let m = format!("Mismatched NEXT, expected control variable {} but got {}", 
                 vars::id_to_num_name(expected_id), vars::id_to_num_name(id));
-            Err(ParseError::new(&m, &pair)) // This may happen, we don't check this in the grammar
+            Err(Error::new(&m, &pair)) // This may happen, we don't check this in the grammar
         }
         else {
             Ok(AstNode::NextStatement{line, id, for_line})
@@ -995,16 +994,16 @@ impl AstBuilder {
         pair.as_str().trim().parse::<u16>().expect(&format!("Could not parse line number {}", pair))
     }
 
-    pub fn end_line(_pair: Pair) -> ParseResult<()> {
+    pub fn end_line(_pair: Pair) -> Result<()> {
         Ok(())
     }
 
-    pub fn end_statement(pair: Pair) -> ParseResult<AstNode> {
+    pub fn end_statement(pair: Pair) -> Result<AstNode> {
         let line = Self::line_number(first_child(pair));
         Ok(AstNode::EndStatement{line})
     }
 
-    pub fn numeric_rep(pair: Pair) -> ParseResult<AstNode> {
+    pub fn numeric_rep(pair: Pair) -> Result<AstNode> {
         let v= parse_pair::<f64>(pair);
         Ok(AstNode::NumVal(v))
     }
@@ -1012,7 +1011,7 @@ impl AstBuilder {
     //
     // { numeric_function_name ~ argument_list? }
     //
-    pub fn numeric_function_ref(pair: Pair) -> ParseResult<AstNode> {
+    pub fn numeric_function_ref(pair: Pair) -> Result<AstNode> {
         assert_rule(&pair, Rule::numeric_function_ref);
 
         let mut pairs = pair.into_inner();
@@ -1027,7 +1026,7 @@ impl AstBuilder {
         }
     }
 
-    pub fn expression(pair: Pair) -> ParseResult<AstNode> {
+    pub fn expression(pair: Pair) -> Result<AstNode> {
         let pair = first_child(pair);
         match pair.as_rule() {
             Rule::string_expression => Self::string_expression(pair),
@@ -1050,7 +1049,7 @@ impl AstBuilder {
     // We therefore iterate, always knowing a prior "sign", and a prior sub-tree
     // we only build the tree as we hit terms
     //  
-    pub fn numeric_expression(pair: Pair) -> ParseResult<AstNode> {
+    pub fn numeric_expression(pair: Pair) -> Result<AstNode> {
         assert_eq!(pair.as_rule(), Rule::numeric_expression, "Expected numeric expression!");
 
         let mut prior_op: Option<OpCode> = None;
@@ -1107,7 +1106,7 @@ impl AstBuilder {
     //
     // term = { factor ~ (multiplier ~ factor)* }
     //
-    pub fn term(pair: Pair) -> ParseResult<AstNode> {
+    pub fn term(pair: Pair) -> Result<AstNode> {
         assert_eq!(pair.as_rule(), Rule::term, "Expected term!");
 
         let mut prior_op: Option<OpCode> = None;
@@ -1153,7 +1152,7 @@ impl AstBuilder {
     //
     // factor = { primary ~ (pow ~ primary)* }
     //
-    pub fn factor(pair: Pair) -> ParseResult<AstNode> {
+    pub fn factor(pair: Pair) -> Result<AstNode> {
         assert_eq!(pair.as_rule(), Rule::factor, "Expected factor!");
 
         let mut prior_op: Option<OpCode> = None;
@@ -1204,7 +1203,7 @@ impl AstBuilder {
     //   | numeric_variable
     //   | ( "(" ~ numeric_expression ~ ")" ) }
     //
-    pub fn primary(pair: Pair) -> ParseResult<AstNode> {
+    pub fn primary(pair: Pair) -> Result<AstNode> {
         assert_rule(&pair, Rule::primary);
 
         let sub_pair = first_child(pair);
@@ -1220,7 +1219,7 @@ impl AstBuilder {
     //
     // numeric_variable = { numeric_array_element | simple_numeric_variable }
     //
-    pub fn numeric_variable(pair: Pair) -> ParseResult<AstNode> {
+    pub fn numeric_variable(pair: Pair) -> Result<AstNode> {
         assert_rule(&pair, Rule::numeric_variable);
 
         let sub_pair = first_child(pair);
@@ -1235,7 +1234,7 @@ impl AstBuilder {
     // numeric_array_element  = { numeric_array_name ~ subscript }
     // subscript = { "(" ~ numeric_expression ~ ( "," ~ numeric_expression )?  ~ ")" }
     //
-    pub fn numeric_array_element(pair: Pair) -> ParseResult<AstNode> {
+    pub fn numeric_array_element(pair: Pair) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
         let id = vars::array_name_to_id(pairs.next().unwrap().as_str());
@@ -1255,7 +1254,7 @@ impl AstBuilder {
         })
     }
 
-    pub fn string_expression(pair: Pair) -> ParseResult<AstNode> {
+    pub fn string_expression(pair: Pair) -> Result<AstNode> {
         let pair = first_child(pair);
         match pair.as_rule() {
             Rule::string_variable => Self::string_variable(pair),
@@ -1264,23 +1263,23 @@ impl AstBuilder {
         }
     }
 
-    pub fn simple_numeric_variable(pair: Pair) -> ParseResult<AstNode> {
+    pub fn simple_numeric_variable(pair: Pair) -> Result<AstNode> {
         let id = vars::num_name_to_id(pair.as_str());
         Ok(AstNode::NumRef(id))
     }
 
-    pub fn string_variable(pair: Pair) -> ParseResult<AstNode> {
+    pub fn string_variable(pair: Pair) -> Result<AstNode> {
         let id = vars::string_name_to_id(pair.as_str());
         Ok(AstNode::StringRef(id))
     }
 
-    pub fn quoted_string(pair: Pair) -> ParseResult<AstNode> {
+    pub fn quoted_string(pair: Pair) -> Result<AstNode> {
         let mut inner = pair.as_str();
         inner = &inner[1..inner.len()-1];
         Ok(AstNode::StringVal(inner.to_owned()))
     }
 
-    pub fn unquoted_string(pair: Pair) -> ParseResult<AstNode> {
+    pub fn unquoted_string(pair: Pair) -> Result<AstNode> {
         Ok(AstNode::StringVal(pair.as_str().trim().to_owned()))
     }
 }

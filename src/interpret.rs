@@ -41,7 +41,7 @@ impl Runner {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), ParseError> {
+    pub fn run(&mut self) -> Result<()> {
         // Normally we execute lines in order, so we use an iterator,
         // which we reset any time we do a jump
         self.state = State::Running;
@@ -57,13 +57,13 @@ impl Runner {
         self.state = State::Error(reason.to_string());
     }
 
-    fn set_current_line_number(&mut self, line_number: u16) -> ParseResult<()> {
+    fn set_current_line_number(&mut self, line_number: u16) -> Result<()> {
         let index = self.line_number_to_index(line_number)?;
         self.current = index;
         Ok(())
     }
 
-    fn run_line(&mut self) -> ParseResult<()> {
+    fn run_line(&mut self) -> Result<()> {
         trace!("Running line {} [{}]", self.current_line_number(), self.current);
 
         let mut next_index = self.current + 1;
@@ -96,7 +96,7 @@ impl Runner {
         match &self.state {
             State::Error(r) => {
                 error!("Runtime error");
-                Err(ParseError::RuntimeError{reason: r.clone(), line_number: self.current_line_number() } )
+                Err(Error::RuntimeError{reason: r.clone(), line_number: self.current_line_number() } )
             }
 
             State::Running => Ok(()),
@@ -112,19 +112,19 @@ impl Runner {
         }
     }
 
-    fn get_error(&self, reason: &str) -> ParseError {
-        ParseError::RuntimeError{reason: reason.to_string(), line_number: self.current_line_number() } 
+    fn get_error(&self, reason: &str) -> Error {
+        Error::RuntimeError{reason: reason.to_string(), line_number: self.current_line_number() } 
     }
 
     pub fn current_line_number(&self) -> u16 {
         get_line_number(&self.lines[self.current])
     }
 
-    fn index_to_line_number(&self, index: usize) -> ParseResult<u16> {
+    fn index_to_line_number(&self, index: usize) -> Result<u16> {
         Ok(get_line_number(&self.lines[index]))
     }
 
-    fn line_number_to_index(&self, line_number: u16) -> ParseResult<usize> {
+    fn line_number_to_index(&self, line_number: u16) -> Result<usize> {
         match self.line_index.get(&line_number) {
             Some(i) => Ok(*i),
             None => Err(self.get_error(&format!("Invalid line number: {}", line_number))) 

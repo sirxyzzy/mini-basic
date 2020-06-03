@@ -18,15 +18,14 @@ mod ast;
 mod vars;
 mod interpret;
 
-use thiserror::Error;
 use std::path::Path;
 use std::fs;
 use ast::AstBuilder;
 
-type ParseResult<T> = std::result::Result<T, ParseError>;
+type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Error, Debug)]
-pub enum ParseError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("Error parsing file: {source}")]
     SyntaxError {
         #[from]
@@ -65,7 +64,7 @@ pub struct ParseOptions {
 }
 
 /// Parse a single file
-pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> ParseResult<()> {
+pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> {
     
     trace!("Reading {}", path.as_ref().display());
     let source = fs::read_to_string(path)?; 
