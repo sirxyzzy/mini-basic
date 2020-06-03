@@ -12,7 +12,10 @@ pub struct Runner {
     line_index: HashMap<u16, usize>,
     current: usize,  // index into lines...
     state: State,
-    call_stack: Vec<usize>
+    call_stack: Vec<usize>,
+    numeric_vars: Vec<Option<f32>>,
+    array_vars: Vec<Option<Vec<f32>>>,
+    string_vars: Vec<Option<String>>,
 }
 
 impl Runner {
@@ -26,7 +29,16 @@ impl Runner {
         // For fast access, create a hashmap from line number to index into lines
         let line_index: HashMap<u16, usize> = lines.iter().enumerate().map(|p| (get_line_number(p.1), p.0)).collect();
 
-        Runner { lines, line_index, current:0, state:State::Stopped, call_stack: Vec::new()}
+        Runner { 
+            lines, 
+            line_index, 
+            current:0, 
+            state:State::Stopped, 
+            call_stack: Vec::new(),
+            numeric_vars: vec![None; 11*26],
+            array_vars: vec![None; 26],
+            string_vars: vec![None; 26] 
+        }
     }
 
     pub fn run(&mut self) -> Result<(), ParseError> {
@@ -54,30 +66,41 @@ impl Runner {
     fn run_line(&mut self) -> ParseResult<()> {
         trace!("Running line {} [{}]", self.current_line_number(), self.current);
 
+        let mut next_index = self.current + 1;
+
         match self.lines[self.current] {
             AstNode::EndStatement{..} => {
                 self.state = State::Ended;
             }
+            AstNode::GotoStatement{line_ref, ..} => {
+                next_index = self.line_number_to_index(line_ref)?;
+            }
             AstNode::GosubStatement{line_ref, ..} => {
+                next_index = self.line_number_to_index(line_ref)?;
                 self.call_stack.push(self.current);
-                self.set_current_line_number(line_ref)?
             }
             AstNode::ReturnStatement{..} => {
                 match self.call_stack.pop() {
-                    Some(v) => self.current = v,
+                    Some(v) => next_index = v,
                     None => self.stop_running("Returned too many times! Stack empty"),
                 }
             }
             _ => self.current += 1
         }
 
-        assert!(self.current < self.lines.len(), "Should never fall off end!");
+        assert!(next_index < self.lines.len(), "Should never fall off end!");
+
+        trace!("Stepping from {} to {}", self.current, next_index);
+        self.current = next_index;
 
         match &self.state {
             State::Error(r) => {
+                error!("Runtime error");
                 Err(ParseError::RuntimeError{reason: r.clone(), line_number: self.current_line_number() } )
             }
+
             State::Running => Ok(()),
+
             State::Ended => {
                 info!("Ended");
                 Ok(())
