@@ -35,7 +35,7 @@ pub enum AstNode {
     ReturnStatement{ line: u16 },
     StopStatement{ line: u16 },
     ForStatement{ line: u16, id: usize, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>},
-    NextStatement{ line: u16, id: usize, for_line: u16},
+    NextStatement{ line: u16, id: usize},
     EndStatement{ line: u16 },
 
     NumericExpression(Box<AstNode>),
@@ -271,8 +271,8 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             }
         },
 
-        AstNode::NextStatement{id, for_line, ..} => 
-            println!("NEXT {} -> {}", vars::id_to_num_name(*id), for_line),
+        AstNode::NextStatement{id, ..} => 
+            println!("NEXT {}", vars::id_to_num_name(*id)),
 
         AstNode::LetStatement{var, val, ..} => {
             println!("LET");
@@ -924,8 +924,8 @@ impl AstBuilder {
         let for_line = Self::for_line(pairs.next().unwrap())?;
 
         match for_line {
-            AstNode::ForStatement{line, id,..} => {
-                let mut body_lines = Self::for_body(pairs.next().unwrap(), line, id)?;
+            AstNode::ForStatement{id,..} => {
+                let mut body_lines = Self::for_body(pairs.next().unwrap(), id)?;
                 lines.push(for_line);
                 lines.append(&mut body_lines);
                 Ok(lines)
@@ -961,12 +961,12 @@ impl AstBuilder {
     }
 
     // for_body { block ~ next_line }
-    pub fn for_body(pair: Pair, for_line: u16, id: usize) -> Result<Vec<AstNode>> {
+    pub fn for_body(pair: Pair, id: usize) -> Result<Vec<AstNode>> {
         let mut pairs = pair.into_inner();
 
         let mut lines = Self::block(pairs.next().unwrap())?;
 
-        let next_line = Self::next_line(pairs.next().unwrap(), id, for_line)?;
+        let next_line = Self::next_line(pairs.next().unwrap(), id)?;
         lines.push(next_line);
 
         Ok(lines)
@@ -974,7 +974,7 @@ impl AstBuilder {
 
     // next_line = !{ line_number ~ next_statement ~ end_of_line }
     // next_statement = { "NEXT" ~ simple_numeric_variable }
-    pub fn next_line(pair: Pair, expected_id: usize, for_line: u16) -> Result<AstNode> {
+    pub fn next_line(pair: Pair, expected_id: usize) -> Result<AstNode> {
         let mut pairs = pair.clone().into_inner();
 
         let line = Self::line_number(pairs.next().unwrap());
@@ -989,7 +989,7 @@ impl AstBuilder {
             Err(Error::new(&m, &pair)) // This may happen, we don't check this in the grammar
         }
         else {
-            Ok(AstNode::NextStatement{line, id, for_line})
+            Ok(AstNode::NextStatement{line, id})
         }
     }
 

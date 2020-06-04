@@ -20,10 +20,18 @@ pub struct Runner {
     state: RefCell<ProgramState>
 }
 
+#[derive(Debug,Clone)]
+pub struct ForContext {
+    for_line: usize,
+    limit: Number,
+    step: Number
+}
+
 pub struct ProgramState {
     current: usize,  // index into lines...
     run_state: State,
     call_stack: Vec<usize>,
+    for_stack: Vec<ForContext>,
     numeric_vars: Vec<Option<Number>>,
     array_vars: Vec<Option<Vec<Number>>>,
     array_vars2: Vec<Option<Vec<Vec<Number>>>>,
@@ -59,6 +67,14 @@ impl Runner {
         self.state.borrow_mut().call_stack.pop()
     }
 
+    fn push_for(&self, c: ForContext) {
+        self.state.borrow_mut().for_stack.push(c)
+    }
+
+    fn pop_for(&self) -> Option<ForContext> {
+        self.state.borrow_mut().for_stack.pop()
+    }
+
     pub fn new(program: AstNode) -> Runner {
         let lines = 
             match program { 
@@ -76,6 +92,7 @@ impl Runner {
                 current:0, 
                 run_state:State::Stopped, 
                 call_stack: Vec::new(),
+                for_stack: Vec::new(),
                 numeric_vars: vec![None; 11*26],
                 array_vars: vec![None; 26],
                 array_vars2: vec![None; 26],
@@ -193,6 +210,7 @@ impl Runner {
             }
             AstNode::RemarkStatement{..} => (),
             AstNode::DataStatement{..} => (),
+
             AstNode::InputStatement{vars,..} => {
                 for v in vars {
                     match v {
@@ -206,10 +224,64 @@ impl Runner {
                 }
             }
 
-            AstNode::IfThenStatement{expr, then, ..} => {
+            AstNode::ForStatement{id, from, to, step, line} => {
+                let from_value = self.evaluate_numeric(from)?;
+                let to_value = self.evaluate_numeric(to)?;
+                let step_value = match step {
+                    Some(step_exp) => self.evaluate_numeric(step_exp)?,
+                    None => 1.0
+                };
+
+                // The initial value
+                self.set_num_var(*id, from_value);
+
+                self.push_for(
+                    ForContext {
+                        for_line: self.current(),
+                        limit: to_value,
+                        step: step_value });
+
+                trace!("Started {} FOR {} = {} TO {} STEP {}", line, vars::id_to_num_name(*id), from_value, to_value, step_value);
+            }
+
+            AstNode::NextStatement{id, line} => {
+                let context = self.pop_for();
+
+                match context {
+                    Some(context) => {
+                        let v = self.get_num_var(*id).expect("Where is my for loop index variable?");
+
+                        let step = context.step;
+
+                        let v1 = v + step;
+
+                        let ended = 
+                            if step < 0.0 {
+                                // Negative range, not sure if that is allowed!
+                                v1 < context.limit
+                            } else {
+                                // Positive range
+                                v1 > context.limit
+                            };
+
+                        if !ended {
+                            // Loop back to for statement
+                            next_index = context.for_line;
+                            self.set_num_var(*id, v1);
+                            self.push_for(context);
+                        } else {
+                            trace!("Ended {} NEXT {}", line, vars::id_to_num_name(*id));
+                        }
+                    },
+                    None => return Err(self.runtime_error("Encountered next outside for loop!"))
+                }
+            }
+
+            AstNode::IfThenStatement{expr, then, line} => {
                 let condition = self.evaluate_relational(expr)?;
                 if condition {
                     next_index = self.line_number_to_index(*then)?;
+                    trace!("Branching {} IF THEN {}", line, vars::id_to_num_name(next_index))
                 }    
             }
 
