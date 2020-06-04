@@ -134,17 +134,48 @@ impl Runner {
         Ok(response)
     }
 
-    fn run_line(&self) -> Result<State> {
-        trace!("Running line {} [{}]", self.current_line_number(), self.current());
+    fn declare_array1(&self, id:usize, bound: usize) {
+        trace!("Declaring array {}[{}]",vars::id_to_array_name(id), bound);
+        let new_vec = vec![0.0f64; bound];
+        let mut state = self.state.borrow_mut();
+        let entry = state.array_vars.get_mut(id);
+        match entry {
+            Some(v) => *v = Some(new_vec),
+            None => panic!("Should never not have a variable, we create all of them!")
+        }      
+    }
 
+    fn declare_array2(&self, id:usize, bound1: usize, bound2: usize) {
+        trace!("Declaring array {}[{},{}]",vars::id_to_array_name(id), bound1, bound2);
+        let row = vec![0.0f64; bound2];
+        let new_vec = vec![row; bound1];
+        let mut state = self.state.borrow_mut();
+        let entry = state.array_vars2.get_mut(id);
+        match entry {
+            Some(v) => *v = Some(new_vec),
+            None => panic!("Should never not have a variable, we create all of them!")
+        }  
+    }
+
+    fn run_line(&self) -> Result<State> {
         let current = self.current();
 
         let mut next_index = current + 1;
 
         let line = &self.lines[current];
 
+        trace!("Line {}", self.current());
 
         match line {
+            AstNode::DimensionStatement{declarations, ..} => {
+                for d in declarations {
+                    match d {
+                        AstNode::ArrayDecl1{id, bound} => self.declare_array1(*id, *bound),
+                        AstNode::ArrayDecl2{id, bound1, bound2} => self.declare_array2(*id, *bound1, *bound2),
+                        x => return Err(self.runtime_unexpected_node(x))
+                    }
+                }
+            }
             AstNode::EndStatement{..} => {
                 self.set_run_state(State::Ended);
             }
@@ -265,8 +296,9 @@ impl Runner {
                             };
 
                         if !ended {
+                            trace!("NEXT {} is {}", vars::id_to_num_name(*id), v1);
                             // Loop back to for statement
-                            next_index = context.for_line;
+                            next_index = context.for_line + 1; // goto line right after for statement
                             self.set_num_var(*id, v1);
                             self.push_for(context);
                         } else {
@@ -290,7 +322,6 @@ impl Runner {
 
         assert!(next_index < self.lines.len(), "Should never fall off end!");
 
-        trace!("Stepping from {} to {}", self.current(), next_index);
         self.set_current(next_index);
 
         match self.run_state() {
