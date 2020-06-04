@@ -18,7 +18,7 @@ pub enum AstNode {
     // All statements have a line number
     // and all must be referenced in 
     DataStatement{ line: u16, datums: Vec<AstNode>},
-    DefStatement{ line: u16, name: String, parameters: Option<Vec<usize>>, expression: Box<AstNode> },
+    DefStatement{ line: u16, id: usize, parameters: Option<Vec<usize>>, expression: Box<AstNode> },
     DimensionStatement{ line: u16, declarations: Vec<AstNode>},
     GosubStatement{ line: u16, line_ref: u16},
     GotoStatement{ line: u16, line_ref: u16},
@@ -40,6 +40,7 @@ pub enum AstNode {
 
     NumericExpression(Box<AstNode>),
     StringExpression(Box<AstNode>),
+    // RelationalExpression(Box<AstNode>),
 
     BinOp {
         op: OpCode,
@@ -93,7 +94,7 @@ pub enum AstNode {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone,Copy)]
 pub enum OpCode {
     // Infix
     Plus,
@@ -124,7 +125,7 @@ pub enum OpCode {
     Neq,
 
     // Defined
-    Def (String)
+    Def (usize)
 }
 
 impl OpCode {
@@ -151,7 +152,7 @@ impl OpCode {
             Rule::sin =>  Some(OpCode::Sin),
             Rule::sqr =>  Some(OpCode::Sqr),
             Rule::tan =>  Some(OpCode::Tan),
-            Rule::numeric_defined_function => Some(OpCode::Def(pair.as_str().to_owned())),
+            Rule::numeric_defined_function => Some(OpCode::Def(vars::def_name_to_id(pair.as_str()))),
 
             Rule::ge  =>  Some(OpCode::Ge),
             Rule::le  =>  Some(OpCode::Le),
@@ -296,13 +297,13 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         AstNode::EndStatement{..} => println!("END"),
 
         // DefStatement{ line: u16, name: String, parameters: Option<Vec<usize>>, expression: Box<AstNode> }
-        AstNode::DefStatement{ name, parameters, expression, ..} => {
+        AstNode::DefStatement{ id, parameters, expression, ..} => {
             match parameters {
                 Some(p) => {
                     let params = p.iter().map(|id| vars::id_to_num_name(*id)).join(", ");
-                    println!("DEF {} ({})", name, params)
+                    println!("DEF {} ({})", vars::id_to_def_name(*id), params)
                 }
-                _ => println!("DEF {} ", name)
+                _ => println!("DEF {} ", vars::id_to_def_name(*id))
             }
             print_ast_helper("", expression, level+1);
         }
@@ -711,7 +712,7 @@ impl AstBuilder {
     fn def_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
 
-        let name = mc.expect_as_string(Rule::numeric_defined_function);
+        let id = vars::def_name_to_id(&mc.expect_as_string(Rule::numeric_defined_function));
         let parameters: Option<Vec<usize>> =
             match mc.maybe_collect_from(Rule::parameter_list, Rule::simple_numeric_variable) {
                 Some(v) => Some(v.iter().map(|p| vars::num_name_to_id( p.as_str().trim())).collect()),
@@ -720,7 +721,7 @@ impl AstBuilder {
 
         let expression = mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?;
 
-        Ok(AstNode::DefStatement{line, name, parameters: parameters, expression: box expression})
+        Ok(AstNode::DefStatement{line, id, parameters: parameters, expression: box expression})
 
     }
 
@@ -871,16 +872,16 @@ impl AstBuilder {
 
         match left_pair.as_rule() {
             Rule::numeric_expression => {
-                let left = Self::numeric_expression(left_pair)?;
-                let right = Self::numeric_expression(right_pair)?;
+                let left = box Self::numeric_expression(left_pair)?;
+                let right = box Self::numeric_expression(right_pair)?;
                 let op = OpCode::from_pair(rel).expect("I want a valid opcode!");
-                Ok(AstNode::BinOp{op, left:box left, right:box right})
+                Ok(AstNode::BinOp{op, left, right})
             },
             Rule::string_expression => {
-                let left = Self::string_expression(left_pair)?;
-                let right = Self::string_expression(right_pair)?;
+                let left = box Self::string_expression(left_pair)?;
+                let right = box Self::string_expression(right_pair)?;
                 let op = OpCode::from_pair(rel).unwrap();
-                Ok(AstNode::BinOp{op, left:box left, right:box right})
+                Ok(AstNode::BinOp{op, left, right})
             },
             _ => panic!("relational expression {:?}", left_pair)
         }

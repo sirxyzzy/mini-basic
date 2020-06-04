@@ -26,6 +26,21 @@ pub fn array_name_to_id(name: &str) -> usize {
     id
 }
 
+pub fn def_name_to_id(name: &str) -> usize {
+    let bytes = name.as_bytes();
+
+    assert_eq!(bytes.len(), 3);
+
+    let id = (bytes[2] - b'A') as usize;
+    debug_assert!(id < 26, "Failed to get valid index for array variable {}", id);
+
+    id
+}
+
+pub fn id_to_def_name(id: usize) -> String {
+    format!("FN{}", id_to_char(id))
+}
+
 pub fn id_to_string_name(id: usize) -> String {
     format!("{}$", id_to_char(id))
 }

@@ -37,6 +37,12 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    #[error("Error parsing value: {source}")]
+    Parse {
+        #[from]
+        source: std::num::ParseFloatError,
+    },
+
     #[error("Error generating AST because {reason} at {start_pos}..{end_pos}")]
     AstError {
         reason: String,

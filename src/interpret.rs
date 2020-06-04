@@ -4,6 +4,7 @@ use super::*;
 use super::ast::*;
 use std::collections::{HashMap};
 use std::cell::RefCell;
+use std::io;
 
 #[derive(PartialEq,Debug,Clone)]
 pub enum State {
@@ -110,7 +111,11 @@ impl Runner {
         Ok(())
     }
 
-
+    fn read_line(&self) -> Result<String> {
+        let mut response = String::new();
+        io::stdin().read_line(&mut response)?;
+        Ok(response)
+    }
 
     fn run_line(&self) -> Result<State> {
         trace!("Running line {} [{}]", self.current_line_number(), self.current());
@@ -140,11 +145,36 @@ impl Runner {
                 }
             }
             AstNode::LetStatement{var, val, ..} => {
-                let v = var.as_ref(); 
-                match v {
-                    AstNode::NumRef(id) => {
-                        self.set_num_var(*id, self.eval_numeric(val.as_ref())?);
+                match var {
+                    box AstNode::NumRef(id) => {
+                        let value = self.evaluate_numeric(val)?;
+                        trace!("Assigning {} to {}", value, vars::id_to_num_name(*id));
+                        self.set_num_var(*id, value);
                     }
+                    box AstNode::ArrayRef1{id, index} => {
+                        let index = self.evaluate_numeric(index)?;
+                        let value = self.evaluate_numeric(val)?;
+
+                        trace!("Assigning {} to {}[{}]", value, vars::id_to_array_name(*id), index);
+                        self.set_num_var(*id, value);
+
+                    }
+                    box AstNode::ArrayRef2{id, index1, index2} => {
+                        let index1 = self.evaluate_numeric(index1)?;
+                        let index2 = self.evaluate_numeric(index2)?;
+                        let value = self.evaluate_numeric(val)?;
+
+                        trace!("Assigning {} to {}[{},{}]", value, vars::id_to_array_name(*id), index1, index2);
+                        self.set_num_var(*id, value);
+                    }
+                    
+                    box AstNode::StringRef(id) => {
+                        let value = self.evaluate_string(val.as_ref())?;
+
+                        trace!("Assigning {} to {}", value, vars::id_to_string_name(*id));
+                        self.set_string_var(*id, value);                       
+                    }
+
                     x => return Err(self.runtime_unexpected_node(x))
                 }
             }
@@ -154,12 +184,35 @@ impl Runner {
                         AstNode::PrintComma => print!("\t"),
                         AstNode::PrintSemi =>  print!(" "),
                         AstNode::TabCall(_) => (/* what? */),
-                        AstNode::StringExpression(expression) => print!("{}", self.eval_string(expression)?),
+                        AstNode::StringExpression(expression) => print!("{}", self.evaluate_string(expression)?),
+                        AstNode::NumericExpression(expression) => print!("{}", self.evaluate_numeric(expression)?),
                         x => return Err(self.runtime_unexpected_node(&x))
                     }
                 }
                 println!();
             }
+            AstNode::RemarkStatement{..} => (),
+            AstNode::DataStatement{..} => (),
+            AstNode::InputStatement{vars,..} => {
+                for v in vars {
+                    match v {
+                        AstNode::StringRef(id,..) => self.set_string_var(*id, self.read_line()?),
+                        AstNode::NumRef(id,..) =>  {
+                            let number = self.read_line()?.trim().parse::<f64>()?;
+                            self.set_num_var(*id, number)
+                        }
+                        x => return Err(self.runtime_unexpected_node(&x))
+                    }
+                }
+            }
+
+            AstNode::IfThenStatement{expr, then, ..} => {
+                let condition = self.evaluate_relational(expr)?;
+                if condition {
+                    next_index = self.line_number_to_index(*then)?;
+                }    
+            }
+
             x => return Err(self.runtime_unexpected_node(&x))
         }
 
@@ -187,46 +240,91 @@ impl Runner {
         }
     }
 
-    fn eval_string(&self, _expression: &AstNode) -> Result<String> {
-        Ok("string thing".to_owned())
-    }
-
-    fn eval_numeric(&self, expression: &AstNode) -> Result<Number> {
-        match expression { 
-            AstNode::NumericExpression(box e) => {
-                match e
-                {
-                    AstNode::BinOp{op, left, right} => self.eval_binop(op, left, right),
-                    AstNode::MonOp{op, arg} => self.eval_monop(op, arg),
-                    AstNode::Op(op) => self.eval_op(op),
-            
-                    AstNode::NumVal(x) => Ok(*x),
-                    AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
-                    AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.eval_numeric(index)?),
-                    AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
-                                                                    self.eval_numeric(index1)?,
-                                                                    self.eval_numeric(index2)?), 
-        
-                    x => panic!("Unexpected node in expression {:?} as bin_op", x)
-                }
-            }
-            x => panic!("Expected numeric expression but got {:?}", x)
+    fn evaluate_string(&self, expression: &AstNode) -> Result<String> {
+        match expression
+        {
+            AstNode::StringExpression(e) => self.evaluate_string(e), // We may be wrapped in a StringExpression node
+            AstNode::StringRef(id) => self.string_var(*id),
+            AstNode::StringVal(v) => Ok(v.clone()),       
+            x => panic!("Unexpected node in evaluate_string : {:?} ", x)
         }
     }
 
-    fn eval_binop(&self, op: &OpCode, left: &AstNode, right: &AstNode) -> Result<Number> {
+    fn evaluate_relational(&self, expression: &AstNode) -> Result<bool> {
+        match expression {
+            AstNode::BinOp{op, left, right} => {
+                // This is arbitrary, in a way, but we check the expression type
+                // decide if we are comparing String, or Numeric expressions
+                match left {
+                    box AstNode::StringExpression(_) => {
+                        let left_string = self.evaluate_string(left)?;
+                        let right_string = self.evaluate_string(right)?;
+
+                        match op {
+                            OpCode::Ge => Ok(left_string >= right_string),
+                            OpCode::Le => Ok(left_string <= right_string),
+                            OpCode::Gt => Ok(left_string > right_string),
+                            OpCode::Lt => Ok(left_string < right_string),
+                            OpCode::Eq => Ok(left_string == right_string),
+                            OpCode::Neq => Ok(left_string != right_string),
+
+                            x => panic!("In relational unexpected relational op {:?}", x)
+                        }
+                    }
+                    box AstNode::NumericExpression(_) => {
+                        let left_number = self.evaluate_numeric(left)?;
+                        let right_number= self.evaluate_numeric(right)?;
+
+                        match op {
+                            OpCode::Ge => Ok(left_number >= right_number),
+                            OpCode::Le => Ok(left_number <= right_number),
+                            OpCode::Gt => Ok(left_number > right_number),
+                            OpCode::Lt => Ok(left_number < right_number),
+                            OpCode::Eq => Ok(left_number == right_number),
+                            OpCode::Neq => Ok(left_number != right_number),
+
+                            x => panic!("In relational unexpected relational op {:?}", x)
+                        }
+                    }
+                    x => panic!("In relational expected string or numeric expression but got {:?}", x)
+                }
+
+            }
+            x => panic!("In relational expected binop but got {:?}", x)
+        }
+    }
+
+    fn evaluate_numeric(&self, expression: &AstNode) -> Result<Number> {
+        match expression {
+            AstNode::NumericExpression(e) => self.evaluate_numeric(e), // At the top level, we may have a numeric expression node
+            AstNode::BinOp{op, left, right} => self.evaluate_binop(op, left, right),
+            AstNode::MonOp{op, arg} => self.evaluate_monop(op, arg),
+            AstNode::Op(op) => self.evaluate_op(op),
+    
+            AstNode::NumVal(x) => Ok(*x),
+            AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
+            AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.evaluate_numeric(index)?),
+            AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
+                                                            self.evaluate_numeric(index1)?,
+                                                            self.evaluate_numeric(index2)?), 
+
+            x => panic!("Unexpected node in expression {:?} as bin_op", x)
+        }
+    }
+
+    fn evaluate_binop(&self, op: &OpCode, left: &AstNode, right: &AstNode) -> Result<Number> {
         match op {
-            OpCode::Plus => Ok(self.eval_numeric(left)? + self.eval_numeric(right)?),
-            OpCode::Minus => Ok(self.eval_numeric(left)? - self.eval_numeric(right)?),
-            OpCode::Multiply => Ok(self.eval_numeric(left)? * self.eval_numeric(right)?),
-            OpCode::Divide => Ok(self.eval_numeric(left)? / self.eval_numeric(right)?),
-            OpCode::Pow => Ok(self.eval_numeric(left)?.powf(self.eval_numeric(right)?)),
+            OpCode::Plus => Ok(self.evaluate_numeric(left)? + self.evaluate_numeric(right)?),
+            OpCode::Minus => Ok(self.evaluate_numeric(left)? - self.evaluate_numeric(right)?),
+            OpCode::Multiply => Ok(self.evaluate_numeric(left)? * self.evaluate_numeric(right)?),
+            OpCode::Divide => Ok(self.evaluate_numeric(left)? / self.evaluate_numeric(right)?),
+            OpCode::Pow => Ok(self.evaluate_numeric(left)?.powf(self.evaluate_numeric(right)?)),
             o => panic!("Unexpected op {:?} as bin_op", o)
         }
     }
 
-    fn eval_monop(&self, op: &OpCode, operand: &AstNode) -> Result<Number> {
-        let v = self.eval_numeric(operand)?;
+    fn evaluate_monop(&self, op: &OpCode, operand: &AstNode) -> Result<Number> {
+        let v = self.evaluate_numeric(operand)?;
         match op {
             OpCode::Abs => Ok(v.abs()),
             OpCode::Atn => Ok(v.atan()),
@@ -242,7 +340,7 @@ impl Runner {
         }
     }
 
-    fn eval_op(&self, op: &OpCode) -> Result<Number> {
+    fn evaluate_op(&self, op: &OpCode) -> Result<Number> {
         match op {
             OpCode::Rnd => Ok(rand::random::<Number>()),
             o => panic!("Unexpected op {:?} as op", o)
@@ -316,6 +414,15 @@ impl Runner {
         assert!(index < 11 * 26);
 
         self.state.borrow_mut().numeric_vars[index] = Some(value);
+    }
+
+    fn string_var(&self, index: usize) -> Result<String> {
+        assert!(index < 11 * 26);
+
+        match &self.state.borrow().string_vars[index] {
+            Some(v) => Ok(v.clone()),
+            None => Err(self.runtime_error("Trying to access uninitialized variable"))
+        }
     }
 
     fn set_string_var(&self, index: usize, value: String) {
