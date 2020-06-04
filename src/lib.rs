@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(box_syntax, box_patterns)]
 
 extern crate pest;
 extern crate thiserror;

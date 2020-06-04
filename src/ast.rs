@@ -38,6 +38,9 @@ pub enum AstNode {
     NextStatement{ line: u16, id: usize, for_line: u16},
     EndStatement{ line: u16 },
 
+    NumericExpression(Box<AstNode>),
+    StringExpression(Box<AstNode>),
+
     BinOp {
         op: OpCode,
         left: Box<AstNode>,
@@ -689,7 +692,7 @@ impl AstBuilder {
     // on_goto_statement = { "ON " ~ numeric_expression ~ "GO" ~ "TO" ~ line_number_ref ~ ( "," ~ line_number_ref)*  }
     fn on_goto_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
-        let expr = Box::new(mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?);
+        let expr = box mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?;
         let line_refs = mc.list_of::<u16>(Rule::line_number_ref);
         Ok(AstNode::OnGotoStatement{line, expr, line_refs})
     }
@@ -717,7 +720,7 @@ impl AstBuilder {
 
         let expression = mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?;
 
-        Ok(AstNode::DefStatement{line, name, parameters: parameters, expression: Box::new(expression)})
+        Ok(AstNode::DefStatement{line, name, parameters: parameters, expression: box expression})
 
     }
 
@@ -847,7 +850,7 @@ impl AstBuilder {
         let p = first_child(pair);
 
         match p.as_rule() {
-            Rule::numeric_expression => Ok(AstNode::TabCall(Box::new(Self::numeric_expression(p)?))),
+            Rule::numeric_expression => Ok(AstNode::TabCall(box Self::numeric_expression(p)?)),
             _ => panic!("tab_call {:?}", p)
         }
     }
@@ -855,7 +858,7 @@ impl AstBuilder {
     // if_then_statement = { "IF " ~ relational_expression ~ "THEN" ~ line_number_ref }
     fn if_then_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let (rel_pair,line_pair) = first_two_children(pair);
-        let expr = Box::new(Self::relational_expression(rel_pair)?);
+        let expr = box Self::relational_expression(rel_pair)?;
         let then = Self::line_number(line_pair);
         Ok(AstNode::IfThenStatement{line, expr, then})
     }
@@ -871,13 +874,13 @@ impl AstBuilder {
                 let left = Self::numeric_expression(left_pair)?;
                 let right = Self::numeric_expression(right_pair)?;
                 let op = OpCode::from_pair(rel).expect("I want a valid opcode!");
-                Ok(AstNode::BinOp{op, left:Box::new(left), right:Box::new(right)})
+                Ok(AstNode::BinOp{op, left:box left, right:box right})
             },
             Rule::string_expression => {
                 let left = Self::string_expression(left_pair)?;
                 let right = Self::string_expression(right_pair)?;
                 let op = OpCode::from_pair(rel).unwrap();
-                Ok(AstNode::BinOp{op, left:Box::new(left), right:Box::new(right)})
+                Ok(AstNode::BinOp{op, left:box left, right:box right})
             },
             _ => panic!("relational expression {:?}", left_pair)
         }
@@ -891,14 +894,14 @@ impl AstBuilder {
         match p.as_rule() {
             Rule::numeric_let_statement => {
                 let (var_pair, expression_pair) = first_two_children(p);
-                let var = Box::new(Self::numeric_variable(var_pair)?);
-                let val = Box::new(Self::numeric_expression(expression_pair)?);
+                let var = box Self::numeric_variable(var_pair)?;
+                let val = box Self::numeric_expression(expression_pair)?;
                 Ok(AstNode::LetStatement{line, var, val})
             }
             Rule::string_let_statement => {
                 let (var_pair, expression_pair) = first_two_children(p);
-                let var = Box::new(Self::string_variable(var_pair)?);
-                let val = Box::new(Self::string_expression(expression_pair)?);
+                let var = box Self::string_variable(var_pair)?;
+                let val = box Self::string_expression(expression_pair)?;
                 Ok(AstNode::LetStatement{line, var, val})
             },
             _ => panic!("let {:?}", p)
@@ -945,11 +948,11 @@ impl AstBuilder {
 
         let id = vars::num_name_to_id(pairs.next().unwrap().as_str());
         
-        let from = Box::new(Self::numeric_expression(pairs.next().unwrap())?);
-        let to = Box::new(Self::numeric_expression(pairs.next().unwrap())?);
+        let from = box Self::numeric_expression(pairs.next().unwrap())?;
+        let to = box Self::numeric_expression(pairs.next().unwrap())?;
 
         let step = match pairs.next() {
-            Some(p) => Some(Box::new(Self::numeric_expression(p)?)),
+            Some(p) => Some(box Self::numeric_expression(p)?),
             None => None
         };
 
@@ -1020,7 +1023,7 @@ impl AstBuilder {
         match pairs.next() {
             Some(p) => {
                 let arg_ast = Self::numeric_expression(first_child(first_child(p)))?;
-                Ok(AstNode::MonOp{op, arg: Box::new(arg_ast)})
+                Ok(AstNode::MonOp{op, arg: box arg_ast})
             }
             None => Ok(AstNode::Op(op))
         }
@@ -1084,13 +1087,13 @@ impl AstBuilder {
                                 None => { 
                                     // This must be the first term, with a monadic + or -
                                     tree = Some(
-                                        AstNode::MonOp { op, arg:Box::new(term_tree) }
+                                        AstNode::MonOp { op, arg:box term_tree }
                                     )
                                 }
                                 Some(prev_tree) => {
                                     // The more common case, a binary operator on what we already have, and the next term
                                     tree = Some(
-                                        AstNode::BinOp { op, left:Box::new(prev_tree), right:Box::new(term_tree) })
+                                        AstNode::BinOp { op, left:box prev_tree, right:box term_tree })
                                 }
                             }
                         }
@@ -1100,7 +1103,7 @@ impl AstBuilder {
             }
         }
 
-        Ok(tree.unwrap())
+        Ok(AstNode::NumericExpression(box tree.unwrap()))
     }
 
     //
@@ -1137,7 +1140,7 @@ impl AstBuilder {
                             // We MUST already have a left tree, assert that
                             assert!(tree.is_some());
 
-                            tree = Some(AstNode::BinOp { op, left:Box::new(tree.unwrap()), right:Box::new(factor_tree) })
+                            tree = Some(AstNode::BinOp { op, left:box tree.unwrap(), right:box factor_tree })
                         }
                     }
 
@@ -1183,7 +1186,7 @@ impl AstBuilder {
                             // We MUST already have a left tree, assert that
                             assert!(tree.is_some());
 
-                            tree = Some(AstNode::BinOp { op, left:Box::new(tree.unwrap()), right:Box::new(primary_tree) })
+                            tree = Some(AstNode::BinOp { op, left:box tree.unwrap(), right:box primary_tree })
                         }
                     }
 
@@ -1241,11 +1244,11 @@ impl AstBuilder {
 
         let mut sub_pairs = pairs.next().unwrap().into_inner();
 
-        let index1 = Box::new(Self::numeric_expression(sub_pairs.next().unwrap())?);
+        let index1 = box Self::numeric_expression(sub_pairs.next().unwrap())?;
 
         Ok(match sub_pairs.next() {
             Some(p) => {
-                let index2 = Box::new(Self::numeric_expression(p)?);
+                let index2 = box Self::numeric_expression(p)?;
                 AstNode::ArrayRef2{ id, index1, index2}
             }
             None => {
@@ -1256,9 +1259,14 @@ impl AstBuilder {
 
     pub fn string_expression(pair: Pair) -> Result<AstNode> {
         let pair = first_child(pair);
+
         match pair.as_rule() {
-            Rule::string_variable => Self::string_variable(pair),
-            Rule::string_constant => Self::quoted_string(pair),
+            Rule::string_variable => {
+                Ok(AstNode::StringExpression(box Self::string_variable(pair)?))
+            }
+            Rule::string_constant => {
+                Ok(AstNode::StringExpression(box Self::quoted_string(pair)?))
+            }
             _ => panic!("string expression {:?}", pair)
         }
     }

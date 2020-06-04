@@ -1,3 +1,5 @@
+
+
 use super::*;
 use super::ast::*;
 use std::collections::{HashMap};
@@ -151,10 +153,12 @@ impl Runner {
                     match item {
                         AstNode::PrintComma => print!("\t"),
                         AstNode::PrintSemi =>  print!(" "),
-                        AstNode::TabCall(_) => (),
+                        AstNode::TabCall(_) => (/* what? */),
+                        AstNode::StringExpression(expression) => print!("{}", self.eval_string(expression)?),
                         x => return Err(self.runtime_unexpected_node(&x))
                     }
                 }
+                println!();
             }
             x => return Err(self.runtime_unexpected_node(&x))
         }
@@ -183,22 +187,31 @@ impl Runner {
         }
     }
 
+    fn eval_string(&self, _expression: &AstNode) -> Result<String> {
+        Ok("string thing".to_owned())
+    }
+
     fn eval_numeric(&self, expression: &AstNode) -> Result<Number> {
-        match expression {
-            AstNode::BinOp{op, left, right} => self.eval_binop(op, left, right),
-            AstNode::MonOp{op, arg} => self.eval_monop(op, arg),
-            AstNode::Op(op) => self.eval_op(op),
-    
-            AstNode::NumVal(x) => Ok(*x),
-            AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
-            AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.eval_numeric(index)?),
-            AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
-                                                            self.eval_numeric(index1)?,
-                                                            self.eval_numeric(index2)?), 
-
-            x => panic!("Unexpected node in expression {:?} as bin_op", x)
+        match expression { 
+            AstNode::NumericExpression(box e) => {
+                match e
+                {
+                    AstNode::BinOp{op, left, right} => self.eval_binop(op, left, right),
+                    AstNode::MonOp{op, arg} => self.eval_monop(op, arg),
+                    AstNode::Op(op) => self.eval_op(op),
+            
+                    AstNode::NumVal(x) => Ok(*x),
+                    AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
+                    AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.eval_numeric(index)?),
+                    AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
+                                                                    self.eval_numeric(index1)?,
+                                                                    self.eval_numeric(index2)?), 
+        
+                    x => panic!("Unexpected node in expression {:?} as bin_op", x)
+                }
+            }
+            x => panic!("Expected numeric expression but got {:?}", x)
         }
-
     }
 
     fn eval_binop(&self, op: &OpCode, left: &AstNode, right: &AstNode) -> Result<Number> {
