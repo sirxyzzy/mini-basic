@@ -36,6 +36,7 @@ pub struct ProgramState {
     array_vars: Vec<Option<Vec<Number>>>,
     array_vars2: Vec<Option<Vec<Vec<Number>>>>,
     string_vars: Vec<Option<String>>,
+    defs: Vec<Option<AstNode>>,
 }
 
 impl ProgramState {
@@ -56,6 +57,18 @@ impl Runner {
     }
 
     fn set_current(&self, current: usize) {
+        self.state.borrow_mut().current = current;
+    }
+
+    fn func_def(&self, id: usize) -> AstNode {
+        let s = self.state.borrow();
+        match s.defs[id] {
+            Some(d) => d,
+            None => 
+        }
+    }
+
+    fn set_func_def(&self, current: usize) {
         self.state.borrow_mut().current = current;
     }
 
@@ -96,6 +109,7 @@ impl Runner {
                 numeric_vars: vec![None; 11*26],
                 array_vars: vec![None; 26],
                 array_vars2: vec![None; 26],
+                defs: vec![None; 26],
                 string_vars: vec![None; 26] }) 
         }
     }
