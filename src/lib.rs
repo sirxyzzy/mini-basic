@@ -16,6 +16,7 @@ mod parser;
 mod ast;
 mod vars;
 mod interpret;
+mod vm;
 
 use std::path::Path;
 use std::fs;
@@ -57,7 +58,13 @@ pub enum Error {
     },
 
     #[error("Error {0} on line {1}")]
-    RuntimeError (String, u16)
+    RuntimeError (String, u16),
+
+    #[error("Error, array index {1} is invalid in {0}")]
+    ArrayIndexOutOfRange (usize, usize),
+
+    #[error("Error, value is uninitialized")]
+    UninitializedValue (usize),
 }
 
 pub struct ParseOptions {

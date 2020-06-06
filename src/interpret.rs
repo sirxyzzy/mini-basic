@@ -5,45 +5,53 @@ use super::ast::*;
 use std::collections::{HashMap};
 use std::cell::RefCell;
 use std::io;
+use vm::*;
 
 #[derive(PartialEq,Debug,Clone)]
 pub enum State {
     Running, Stopped, Ended, Error(String)
 }
 
-type Number = f64;
+pub type Number = f64;
 
 pub struct Runner {
     lines: Vec<AstNode>,
     line_index: HashMap<u16, usize>,
 
-    state: RefCell<ProgramState>
-}
-
-#[derive(Debug,Clone)]
-pub struct ForContext {
-    for_line: usize,
-    limit: Number,
-    step: Number
-}
-
-pub struct ProgramState {
-    current: usize,  // index into lines...
-    run_state: State,
-    call_stack: Vec<usize>,
-    for_stack: Vec<ForContext>,
-    numeric_vars: Vec<Option<Number>>,
-    array_vars: Vec<Option<Vec<Number>>>,
-    array_vars2: Vec<Option<Vec<Vec<Number>>>>,
-    string_vars: Vec<Option<String>>,
-    defs: Vec<Option<AstNode>>,
-}
-
-impl ProgramState {
-
+    state: RefCell<vm::VirtualMachine>
 }
 
 impl Runner {
+    fn get_array_var(&self, var_index: usize, index: Number) -> Result<Number> {
+        assert!(var_index < 26);
+        self.state.borrow().array_vars.get(var_index, index.round() as usize)
+    }
+
+    fn get_array_var2(&self, var_index: usize, index1: Number, index2: Number) -> Result<Number> {
+        assert!(var_index < 26);
+        self.state.borrow().array2_vars.get(var_index, index1.round() as usize, index2.round() as usize)
+    }
+
+    fn get_num_var(&self, index: usize) -> Result<Number> {
+        assert!(index < 11 * 26);
+
+        self.state.borrow().numeric_vars.get(index)
+    }
+
+    fn set_num_var(&self, index: usize, value: Number) {
+        assert!(index < 11 * 26);
+
+        self.state.borrow_mut().numeric_vars.set(index, value);
+    }
+
+    fn string_var(&self, index: usize) -> Result<String> {
+        self.state.borrow().string_vars.get(index)
+    }
+
+    fn set_string_var(&self, index: usize, value: String) {
+        self.state.borrow_mut().string_vars.set(index, value);
+    }
+
     fn run_state(&self) -> State {
         self.state.borrow().run_state.clone()
     }
@@ -57,18 +65,6 @@ impl Runner {
     }
 
     fn set_current(&self, current: usize) {
-        self.state.borrow_mut().current = current;
-    }
-
-    fn func_def(&self, id: usize) -> AstNode {
-        let s = self.state.borrow();
-        match s.defs[id] {
-            Some(d) => d,
-            None => 
-        }
-    }
-
-    fn set_func_def(&self, current: usize) {
         self.state.borrow_mut().current = current;
     }
 
@@ -101,16 +97,7 @@ impl Runner {
         Runner { 
             lines, 
             line_index, 
-            state: RefCell::new(ProgramState  {
-                current:0, 
-                run_state:State::Stopped, 
-                call_stack: Vec::new(),
-                for_stack: Vec::new(),
-                numeric_vars: vec![None; 11*26],
-                array_vars: vec![None; 26],
-                array_vars2: vec![None; 26],
-                defs: vec![None; 26],
-                string_vars: vec![None; 26] }) 
+            state: RefCell::new(vm::VirtualMachine::new())
         }
     }
 
@@ -148,27 +135,16 @@ impl Runner {
         Ok(response)
     }
 
-    fn declare_array1(&self, id:usize, bound: usize) {
+    fn declare_array1(&self, id:usize, bound: usize) -> Result<()> {
         trace!("Declaring array {}[{}]",vars::id_to_array_name(id), bound);
-        let new_vec = vec![0.0f64; bound];
-        let mut state = self.state.borrow_mut();
-        let entry = state.array_vars.get_mut(id);
-        match entry {
-            Some(v) => *v = Some(new_vec),
-            None => panic!("Should never not have a variable, we create all of them!")
-        }      
+        self.state.borrow_mut().array_vars.declare(id, bound)    
     }
 
-    fn declare_array2(&self, id:usize, bound1: usize, bound2: usize) {
+    fn declare_array2(&self, id:usize, bound1: usize, bound2: usize) -> Result<()> {
         trace!("Declaring array {}[{},{}]",vars::id_to_array_name(id), bound1, bound2);
-        let row = vec![0.0f64; bound2];
-        let new_vec = vec![row; bound1];
+
         let mut state = self.state.borrow_mut();
-        let entry = state.array_vars2.get_mut(id);
-        match entry {
-            Some(v) => *v = Some(new_vec),
-            None => panic!("Should never not have a variable, we create all of them!")
-        }  
+        state.array2_vars.declare(id, bound1, bound2)
     }
 
     fn run_line(&self) -> Result<State> {
@@ -184,8 +160,8 @@ impl Runner {
             AstNode::DimensionStatement{declarations, ..} => {
                 for d in declarations {
                     match d {
-                        AstNode::ArrayDecl1{id, bound} => self.declare_array1(*id, *bound),
-                        AstNode::ArrayDecl2{id, bound1, bound2} => self.declare_array2(*id, *bound1, *bound2),
+                        AstNode::ArrayDecl1{id, bound} => self.declare_array1(*id, *bound)?,
+                        AstNode::ArrayDecl2{id, bound1, bound2} => self.declare_array2(*id, *bound1, *bound2)?,
                         x => return Err(self.runtime_unexpected_node(x))
                     }
                 }
@@ -281,7 +257,7 @@ impl Runner {
                 self.set_num_var(*id, from_value);
 
                 self.push_for(
-                    ForContext {
+                    vm::ForContext {
                         for_line: self.current(),
                         limit: to_value,
                         step: step_value });
@@ -361,7 +337,7 @@ impl Runner {
         match expression
         {
             AstNode::StringExpression(e) => self.evaluate_string(e), // We may be wrapped in a StringExpression node
-            AstNode::StringRef(id) => self.string_var(*id),
+            AstNode::StringRef(id) => Ok(self.string_var(*id)?.clone()),
             AstNode::StringVal(v) => Ok(v.clone()),       
             x => panic!("Unexpected node in evaluate_string : {:?} ", x)
         }
@@ -420,10 +396,10 @@ impl Runner {
     
             AstNode::NumVal(x) => Ok(*x),
             AstNode::NumRef(id) =>  Ok(self.get_num_var(*id)?),
-            AstNode::ArrayRef1{id, index} => self.get_array_var(*id, self.evaluate_numeric(index)?),
-            AstNode::ArrayRef2{id, index1, index2} => self.get_array_var2(*id, 
+            AstNode::ArrayRef1{id, index} => Ok(self.get_array_var(*id, self.evaluate_numeric(index)?)?),
+            AstNode::ArrayRef2{id, index1, index2} => Ok(self.get_array_var2(*id, 
                                                             self.evaluate_numeric(index1)?,
-                                                            self.evaluate_numeric(index2)?), 
+                                                            self.evaluate_numeric(index2)?)?), 
 
             x => panic!("Unexpected node in expression {:?} as bin_op", x)
         }
@@ -499,52 +475,4 @@ impl Runner {
         }
     }
 
-    fn get_array_var(&self, var_index: usize, index: Number) -> Result<Number> {
-        assert!(var_index < 26);
-        match &self.state.borrow().array_vars[var_index] {
-            Some(v) => Ok(v[self.check_index(index, v.len())?]),
-            None => Err(self.runtime_error("Trying to access uninitialized variable"))
-        }
-    }
-
-    fn get_array_var2(&self, var_index: usize, index1: Number, index2: Number) -> Result<Number> {
-        assert!(var_index < 26);
-        match &self.state.borrow().array_vars2[var_index] {
-            Some(v) => {
-                let v2 = &v[self.check_index(index1, v.len())?];
-                Ok(v2[self.check_index(index2, v2.len())?]) 
-            }
-            None => Err(self.runtime_error("Trying to access uninitialized variable"))
-        }
-    }
-
-    fn get_num_var(&self, index: usize) -> Result<Number> {
-        assert!(index < 11 * 26);
-
-        match self.state.borrow().numeric_vars[index] {
-            Some(v) => Ok(v),
-            None => Err(self.runtime_error("Trying to access uninitialized variable"))
-        }
-    }
-
-    fn set_num_var(&self, index: usize, value: Number) {
-        assert!(index < 11 * 26);
-
-        self.state.borrow_mut().numeric_vars[index] = Some(value);
-    }
-
-    fn string_var(&self, index: usize) -> Result<String> {
-        assert!(index < 11 * 26);
-
-        match &self.state.borrow().string_vars[index] {
-            Some(v) => Ok(v.clone()),
-            None => Err(self.runtime_error("Trying to access uninitialized variable"))
-        }
-    }
-
-    fn set_string_var(&self, index: usize, value: String) {
-        assert!(index < 11 * 26);
-
-        self.state.borrow_mut().string_vars[index] = Some(value);
-    }
 }
