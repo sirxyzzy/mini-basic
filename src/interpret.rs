@@ -16,74 +16,12 @@ pub type Number = f64;
 
 pub struct Runner {
     lines: Vec<AstNode>,
-    line_index: HashMap<u16, usize>,
+    line_index: HashMap<u16, usize>, // Line number to index of line in lines vector
 
     state: RefCell<vm::VirtualMachine>
 }
 
 impl Runner {
-    fn get_array_var(&self, var_index: usize, index: Number) -> Result<Number> {
-        assert!(var_index < 26);
-        self.state.borrow().array_vars.get(var_index, index.round() as usize)
-    }
-
-    fn get_array_var2(&self, var_index: usize, index1: Number, index2: Number) -> Result<Number> {
-        assert!(var_index < 26);
-        self.state.borrow().array2_vars.get(var_index, index1.round() as usize, index2.round() as usize)
-    }
-
-    fn get_num_var(&self, index: usize) -> Result<Number> {
-        assert!(index < 11 * 26);
-
-        self.state.borrow().numeric_vars.get(index)
-    }
-
-    fn set_num_var(&self, index: usize, value: Number) {
-        assert!(index < 11 * 26);
-
-        self.state.borrow_mut().numeric_vars.set(index, value);
-    }
-
-    fn string_var(&self, index: usize) -> Result<String> {
-        self.state.borrow().string_vars.get(index)
-    }
-
-    fn set_string_var(&self, index: usize, value: String) {
-        self.state.borrow_mut().string_vars.set(index, value);
-    }
-
-    fn run_state(&self) -> State {
-        self.state.borrow().run_state.clone()
-    }
-
-    fn set_run_state(&self, state: State) {
-        self.state.borrow_mut().run_state = state;
-    }
-
-    fn current(&self) -> usize {
-        self.state.borrow().current
-    }
-
-    fn set_current(&self, current: usize) {
-        self.state.borrow_mut().current = current;
-    }
-
-    fn push(&self, index: usize) {
-        self.state.borrow_mut().call_stack.push(index)
-    }
-
-    fn pop(&self) -> Option<usize> {
-        self.state.borrow_mut().call_stack.pop()
-    }
-
-    fn push_for(&self, c: ForContext) {
-        self.state.borrow_mut().for_stack.push(c)
-    }
-
-    fn pop_for(&self) -> Option<ForContext> {
-        self.state.borrow_mut().for_stack.pop()
-    }
-
     pub fn new(program: AstNode) -> Runner {
         let lines = 
             match program { 
@@ -91,7 +29,6 @@ impl Runner {
                 _ => panic!("Interpret can only run a Program!")
         };
 
-        // For fast access, create a hashmap from line Number to index into lines
         let line_index: HashMap<u16, usize> = lines.iter().enumerate().map(|p| (get_line_number(p.1), p.0)).collect();
 
         Runner { 
@@ -135,13 +72,13 @@ impl Runner {
         Ok(response)
     }
 
-    fn declare_array1(&self, id:usize, bound: usize) -> Result<()> {
-        trace!("Declaring array {}[{}]",vars::id_to_array_name(id), bound);
+    fn declare_array1(&self, id:VarId, bound: usize) -> Result<()> {
+        trace!("Declaring array {}[{}]", id, bound);
         self.state.borrow_mut().array_vars.declare(id, bound)    
     }
 
-    fn declare_array2(&self, id:usize, bound1: usize, bound2: usize) -> Result<()> {
-        trace!("Declaring array {}[{},{}]",vars::id_to_array_name(id), bound1, bound2);
+    fn declare_array2(&self, id:VarId, bound1: usize, bound2: usize) -> Result<()> {
+        trace!("Declaring array {}[{},{}]", id, bound1, bound2);
 
         let mut state = self.state.borrow_mut();
         state.array2_vars.declare(id, bound1, bound2)
@@ -154,7 +91,7 @@ impl Runner {
 
         let line = &self.lines[current];
 
-        trace!("Line {}", self.current());
+        trace!("{}: Line {}", current, self.current_line_number());
 
         match line {
             AstNode::DimensionStatement{declarations, ..} => {
@@ -186,14 +123,14 @@ impl Runner {
                 match var {
                     box AstNode::NumRef(id) => {
                         let value = self.evaluate_numeric(val)?;
-                        trace!("Assigning {} to {}", value, vars::id_to_num_name(*id));
+                        trace!("Assigning {} to {}", value, id);
                         self.set_num_var(*id, value);
                     }
                     box AstNode::ArrayRef1{id, index} => {
                         let index = self.evaluate_numeric(index)?;
                         let value = self.evaluate_numeric(val)?;
 
-                        trace!("Assigning {} to {}[{}]", value, vars::id_to_array_name(*id), index);
+                        trace!("Assigning {} to {}[{}]", value, id, index);
                         self.set_num_var(*id, value);
 
                     }
@@ -202,14 +139,14 @@ impl Runner {
                         let index2 = self.evaluate_numeric(index2)?;
                         let value = self.evaluate_numeric(val)?;
 
-                        trace!("Assigning {} to {}[{},{}]", value, vars::id_to_array_name(*id), index1, index2);
+                        trace!("Assigning {} to {}[{},{}]", value, id, index1, index2);
                         self.set_num_var(*id, value);
                     }
                     
                     box AstNode::StringRef(id) => {
                         let value = self.evaluate_string(val.as_ref())?;
 
-                        trace!("Assigning {} to {}", value, vars::id_to_string_name(*id));
+                        trace!("Assigning {} to {}", value, id);
                         self.set_string_var(*id, value);                       
                     }
 
@@ -262,11 +199,11 @@ impl Runner {
                         limit: to_value,
                         step: step_value });
 
-                trace!("Started {} FOR {} = {} TO {} STEP {}", line, vars::id_to_num_name(*id), from_value, to_value, step_value);
+                trace!("Started {} FOR {} = {} TO {} STEP {}", line, id, from_value, to_value, step_value);
             }
 
             AstNode::NextStatement{id, line} => {
-                let context = self.pop_for();
+                let context = self.peek_for();
 
                 match context {
                     Some(context) => {
@@ -275,6 +212,9 @@ impl Runner {
                         let step = context.step;
 
                         let v1 = v + step;
+
+                        // Even if we hit our limit, the index variable should be seen to be incremented
+                        self.set_num_var(*id, v1);
 
                         let ended = 
                             if step < 0.0 {
@@ -286,13 +226,12 @@ impl Runner {
                             };
 
                         if !ended {
-                            trace!("NEXT {} is {}", vars::id_to_num_name(*id), v1);
+                            trace!("NEXT {} is {}", id, v1);
                             // Loop back to for statement
                             next_index = context.for_line + 1; // goto line right after for statement
-                            self.set_num_var(*id, v1);
-                            self.push_for(context);
                         } else {
-                            trace!("Ended {} NEXT {}", line, vars::id_to_num_name(*id));
+                            self.pop_for();
+                            trace!("Ended {} NEXT {}", line, id);
                         }
                     },
                     None => return Err(self.runtime_error("Encountered next outside for loop!"))
@@ -303,14 +242,20 @@ impl Runner {
                 let condition = self.evaluate_relational(expr)?;
                 if condition {
                     next_index = self.line_number_to_index(*then)?;
-                    trace!("Branching {} IF THEN {}", line, vars::id_to_num_name(next_index))
+                    trace!("Branching {} IF THEN {}", line, then)
                 }    
             }
+
+            AstNode::DefStatement{..} => () ,
 
             x => return Err(self.runtime_unexpected_node(&x))
         }
 
         assert!(next_index < self.lines.len(), "Should never fall off end!");
+
+        if next_index != current + 1 {
+            trace!("Jumping to {} (index={})", self.index_to_line_number(next_index), next_index)
+        }
 
         self.set_current(next_index);
 
@@ -444,6 +389,10 @@ impl Runner {
         Error::RuntimeError(reason.to_string(), self.current_line_number() )
     }
 
+    fn runtime_map_error(&self, e:Error) -> Error {
+        Error::RuntimeError(e.to_string(), self.current_line_number() )
+    }
+
     fn runtime_error_unimplemented(&self) -> Error {
         Error::RuntimeError("unimplemented".to_string(), self.current_line_number() )
     }
@@ -456,8 +405,8 @@ impl Runner {
         get_line_number(&self.lines[self.current()])
     }
 
-    fn index_to_line_number(&self, index: usize) -> Result<u16> {
-        Ok(get_line_number(&self.lines[index]))
+    fn index_to_line_number(&self, index: usize) -> u16 {
+        get_line_number(&self.lines[index])
     }
 
     fn line_number_to_index(&self, line_number: u16) -> Result<usize> {
@@ -467,12 +416,69 @@ impl Runner {
         }
     }
 
-    fn check_index(&self, x: f64, max: usize) -> Result<usize> {    
-        if x < 0.0 || x >= max as f64 {
-            Err(self.runtime_error(&format!("Index {} out of range, 0..{}", x, max)))
-        } else {
-            Ok(x as usize)
-        }
+    fn get_array_var(&self, var_index: VarId, index: Number) -> Result<Number> {
+        self.state.borrow().array_vars.get(var_index, index.round() as usize).map_err(|e| self.runtime_map_error(e))
     }
 
+    fn get_array_var2(&self, var_index: VarId, index1: Number, index2: Number) -> Result<Number> {
+        self.state.borrow()
+            .array2_vars.get(var_index, index1.round() as usize, index2.round() as usize)
+            .map_err(|e| self.runtime_map_error(e))
+    }
+
+    fn get_num_var(&self, index: VarId) -> Result<Number> {
+        self.state.borrow()
+            .numeric_vars.get(index)
+            .map_err(|e| self.runtime_map_error(e))
+    }
+
+    fn set_num_var(&self, index: VarId, value: Number) {
+        self.state.borrow_mut().numeric_vars.set(index, value);
+    }
+
+    fn string_var(&self, index: VarId) -> Result<String> {
+        self.state.borrow()
+            .string_vars.get(index)
+            .map_err(|e| self.runtime_map_error(e))
+    }
+
+    fn set_string_var(&self, index: VarId, value: String) {
+        self.state.borrow_mut().string_vars.set(index, value);
+    }
+
+    fn run_state(&self) -> State {
+        self.state.borrow().run_state.clone()
+    }
+
+    fn set_run_state(&self, state: State) {
+        self.state.borrow_mut().run_state = state;
+    }
+
+    fn current(&self) -> usize {
+        self.state.borrow().current
+    }
+
+    fn set_current(&self, current: usize) {
+        self.state.borrow_mut().current = current;
+    }
+
+    fn push(&self, index: usize) {
+        self.state.borrow_mut().call_stack.push(index)
+    }
+
+    fn pop(&self) -> Option<usize> {
+        self.state.borrow_mut().call_stack.pop()
+    }
+
+    fn push_for(&self, c: ForContext) {
+        self.state.borrow_mut().for_stack.push(c)
+    }
+
+    fn pop_for(&self) -> Option<ForContext> {
+        self.state.borrow_mut().for_stack.pop()
+    }
+
+    fn peek_for(&self) -> Option<ForContext> {
+        self.state.borrow().for_stack.peek()
+    }
 }

@@ -1,21 +1,26 @@
 use super::*;
 use std::collections::{HashMap};
 use super::interpret::*;
+use super::vars::VarId;
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Copy,Clone)]
 pub struct ForContext {
     pub for_line: usize,
     pub limit: Number,
     pub step: Number
 }
 
-pub struct VmStack<T> {
+pub struct VmStack<T:Copy> {
     things: Vec<T>
 }
 
-impl<T> VmStack<T> {
+impl<T:Copy> VmStack<T> {
     pub fn new() -> VmStack<T> {
         VmStack::<T>{ things:vec![] }
+    }
+
+    pub fn peek(&self) -> Option<T> {
+        self.things.last().copied()
     }
 
     pub fn pop(&mut self) -> Option<T> {
@@ -28,7 +33,7 @@ impl<T> VmStack<T> {
 }
 
 pub struct VarStore<T:Clone> {
-    things: HashMap<usize, T>
+    things: HashMap<VarId, T>
 }
 
 impl<T:Clone> VarStore<T> {
@@ -36,50 +41,47 @@ impl<T:Clone> VarStore<T> {
         VarStore::<T>{ things:HashMap::new() }
     }
 
-    pub fn get(&self, id: usize) -> Result<T> {
+    pub fn get(&self, id: VarId) -> Result<T> {
         match self.things.get(&id) {
             Some(v) => Ok(v.clone()),
             None => Err(Error::UninitializedValue(id))
         }
     }
 
-    pub fn set(&mut self, id: usize, value: T) {
+    pub fn set(&mut self, id: VarId, value: T) {
         self.things.insert(id, value);
     }
 }
 
-pub struct ArrayStore<T: Clone> {
-    things: HashMap<usize, Vec<Option<T>> >
+pub struct ArrayStore<T: Clone+Default> {
+    things: HashMap<VarId, Vec<T> >
 }
 
-impl<T: Clone> ArrayStore<T> {
+impl<T: Clone+Default> ArrayStore<T> {
     pub fn new() -> ArrayStore<T> {
         ArrayStore::<T>{ things:HashMap::new() }
     }
 
-    pub fn declare(&mut self, id: usize, bound: usize) -> Result<()> {
-        self.things.insert(id, vec![None; bound]);
+    pub fn declare(&mut self, id: VarId, bound: usize) -> Result<()> {
+        self.things.insert(id, vec![Default::default(); bound]);
         Ok(())
     }
 
-    pub fn get(&self, id: usize, index: usize) -> Result<T> {
+    pub fn get(&self, id: VarId, index: usize) -> Result<T> {
         match self.things.get(&id) {
             Some(v1) => {
                 if index >= v1.len() {
                     Err(Error::ArrayIndexOutOfRange(id, index))
                 } else {
-                    match v1.get(index).unwrap() {
-                        Some(v2) => Ok(v2.clone()),
-                        None => Err(Error::UninitializedValue(id))
-                    }
+                    Ok(v1.get(index).unwrap().clone())
                 }
             }
-            None => Err(Error::UninitializedValue(id))
+            None => Err(Error::UninitializedArray(id))
         }
     }
 
-    pub fn set(&mut self, id: usize, index: usize, value: T) -> Result<()> {
-        let v = self.things.entry(id).or_insert_with(||  vec![None, None, None, None, None, None, None, None, None, None, None]);
+    pub fn set(&mut self, id: VarId, index: usize, value: T) -> Result<()> {
+        let v = self.things.entry(id).or_insert_with(||  vec![Default::default(); 11]);
         // The rules are arrays get auto created, size 11 (indexes 0..10) if they don't 
         // exist already!
 
@@ -87,26 +89,26 @@ impl<T: Clone> ArrayStore<T> {
             return Err(Error::ArrayIndexOutOfRange(id, index))
         }
 
-        v[index] = Some(value);
+        v[index] = value;
         Ok(())
     }
 }
 
-pub struct Array2Store<T: Clone> {
-    things: HashMap<usize, (usize, Vec<Option<T>>) >
+pub struct Array2Store<T: Clone+Default> {
+    things: HashMap<VarId, (usize, Vec<Option<T>>) >
 }
 
-impl<T: Clone> Array2Store<T> {
+impl<T: Clone+Default> Array2Store<T> {
     pub fn new() -> Array2Store<T> {
         Array2Store::<T>{ things:HashMap::new() }
     }
 
-    pub fn declare(&mut self, id: usize, bound1: usize, bound2: usize) -> Result<()> {
-        self.things.insert(id, (bound2, vec![None; bound1 * bound2]));
+    pub fn declare(&mut self, id: VarId, bound1: usize, bound2: usize) -> Result<()> {
+        self.things.insert(id, (bound2, vec![Default::default(); bound1 * bound2]));
         Ok(())
     }
    
-    pub fn get(&self, id: usize, index1: usize, index2: usize) -> Result<T> {
+    pub fn get(&self, id: VarId, index1: usize, index2: usize) -> Result<T> {
         match self.things.get(&id) {
             Some((bound, v1)) => {
                 if index2 >= *bound {
@@ -119,16 +121,16 @@ impl<T: Clone> Array2Store<T> {
                     } else {
                         match v1.get(index).unwrap() {
                             Some(v2) => Ok(v2.clone()),
-                            None => Err(Error::UninitializedValue(id))
+                            None => Err(Error::UninitializedArrayValue(id))
                         }
                     }
                 }
             }
-            None => Err(Error::UninitializedValue(id))
+            None => Err(Error::UninitializedArray(id))
         }
     }
 
-    pub fn set(&mut self, id: usize, index1: usize, index2: usize, value: T) -> Result<()> {
+    pub fn set(&mut self, id: VarId, index1: usize, index2: usize, value: T) -> Result<()> {
         match self.things.get_mut(&id) {
             Some((bound, v)) => {
                 if index2 > *bound {
@@ -144,7 +146,7 @@ impl<T: Clone> Array2Store<T> {
                     }
                 }
             }
-            None => Err(Error::UninitializedValue(id))
+            None => Err(Error::UninitializedArray(id))
         }
     }
 }

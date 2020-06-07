@@ -21,6 +21,7 @@ mod vm;
 use std::path::Path;
 use std::fs;
 use ast::AstBuilder;
+use vars::VarId;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -60,11 +61,17 @@ pub enum Error {
     #[error("Error {0} on line {1}")]
     RuntimeError (String, u16),
 
-    #[error("Error, array index {1} is invalid in {0}")]
-    ArrayIndexOutOfRange (usize, usize),
+    #[error("array index {1} is invalid in {0}")]
+    ArrayIndexOutOfRange (VarId, usize),
 
-    #[error("Error, value is uninitialized")]
-    UninitializedValue (usize),
+    #[error("value {0} is uninitialized")]
+    UninitializedValue (VarId),
+
+    #[error("array {0} is uninitialized")]
+    UninitializedArray (VarId),
+
+    #[error("array value {0} is uninitialized")]
+    UninitializedArrayValue (VarId),
 }
 
 pub struct ParseOptions {

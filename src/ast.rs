@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use vars;
 use std::str::FromStr;
 use itertools::Itertools;
+use super::vars::VarId;
 
 
 // Since the tree is immutable, we can build it with refs
@@ -18,7 +19,7 @@ pub enum AstNode {
     // All statements have a line number
     // and all must be referenced in 
     DataStatement{ line: u16, datums: Vec<AstNode>},
-    DefStatement{ line: u16, id: usize, parameters: Option<Vec<usize>>, expression: Box<AstNode> },
+    DefStatement{ line: u16, id: VarId, parameters: Option<Vec<usize>>, expression: Box<AstNode> },
     DimensionStatement{ line: u16, declarations: Vec<AstNode>},
     GosubStatement{ line: u16, line_ref: u16},
     GotoStatement{ line: u16, line_ref: u16},
@@ -34,8 +35,8 @@ pub enum AstNode {
     RestoreStatement{ line: u16 },
     ReturnStatement{ line: u16 },
     StopStatement{ line: u16 },
-    ForStatement{ line: u16, id: usize, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>},
-    NextStatement{ line: u16, id: usize},
+    ForStatement{ line: u16, id: VarId, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>},
+    NextStatement{ line: u16, id: VarId},
     EndStatement{ line: u16 },
 
     NumericExpression(Box<AstNode>),
@@ -64,17 +65,17 @@ pub enum AstNode {
 
     StringVal (String),
 
-    NumRef (usize),
+    NumRef (VarId),
 
-    StringRef (usize),
+    StringRef (VarId),
 
     ArrayRef1 {
-        id: usize,
+        id: VarId,
         index: Box<AstNode>
     },
 
     ArrayRef2 {
-        id: usize,
+        id: VarId,
         index1: Box<AstNode>,
         index2: Box<AstNode>        
     },
@@ -84,8 +85,8 @@ pub enum AstNode {
     //
     
     // Array definitions
-    ArrayDecl1 { id: usize, bound: usize },
-    ArrayDecl2 { id: usize, bound1: usize, bound2: usize },
+    ArrayDecl1 { id: VarId, bound: usize },
+    ArrayDecl2 { id: VarId, bound1: usize, bound2: usize },
 
     // Definition of user defined function
     // functions are invoked through an OpCode::Def
@@ -242,15 +243,15 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
 
         AstNode::NumVal(x) => println!("{}", x),
         AstNode::StringVal(s) => println!("'{}'", s),
-        AstNode::NumRef(id) =>  println!("{}", vars::id_to_num_name(*id)),
-        AstNode::StringRef(id) =>  println!("{}", vars::id_to_string_name(*id)),
+        AstNode::NumRef(id) =>  println!("{}", id),
+        AstNode::StringRef(id) =>  println!("{}", id),
         AstNode::ArrayRef1{id, index} => {
-            println!("{}[..]", vars::id_to_array_name(*id));
+            println!("{}[..]", id);
             print_ast_helper("", index, level+1);             
         }
 
         AstNode::ArrayRef2{id, index1, index2} => {
-            println!("{}[..,..]", vars::id_to_array_name(*id));
+            println!("{}[..,..]", id);
             print_ast_helper("", index1, level+1);
             print_ast_helper("", index2, level+1);                 
         }
@@ -263,7 +264,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         }
 
         AstNode::ForStatement{id, from, to, step, ..} => {
-            println!("FOR {}", vars::id_to_num_name(*id));
+            println!("FOR {}", id);
             print_ast_helper("from", from, level+1);
             print_ast_helper("  to", to, level+1);
             if let Some(step) =  step {
@@ -272,7 +273,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         },
 
         AstNode::NextStatement{id, ..} => 
-            println!("NEXT {}", vars::id_to_num_name(*id)),
+            println!("NEXT {}", id),
 
         AstNode::LetStatement{var, val, ..} => {
             println!("LET");
@@ -301,9 +302,9 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
             match parameters {
                 Some(p) => {
                     let params = p.iter().map(|id| vars::id_to_num_name(*id)).join(", ");
-                    println!("DEF {} ({})", vars::id_to_def_name(*id), params)
+                    println!("DEF {} ({})", id, params)
                 }
-                _ => println!("DEF {} ", vars::id_to_def_name(*id))
+                _ => println!("DEF {} ", id)
             }
             print_ast_helper("", expression, level+1);
         }
@@ -322,9 +323,9 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         
         AstNode::OptionStatement{base, ..} => println!("OPTION BASE {}", base), 
 
-        AstNode::ArrayDecl1{id, bound} => println!("{}[{}]", vars::id_to_array_name(*id), bound),
+        AstNode::ArrayDecl1{id, bound} => println!("{}[{}]", id, bound),
         AstNode::ArrayDecl2{id, bound1, bound2} => {
-            println!("{}[{},{}]", vars::id_to_array_name(*id), bound1, bound2)
+            println!("{}[{},{}]", id, bound1, bound2)
         }
 
         _ => println!("{:?}", node) 
@@ -712,7 +713,7 @@ impl AstBuilder {
     fn def_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut mc = Matcher::new(pair);
 
-        let id = vars::def_name_to_id(&mc.expect_as_string(Rule::numeric_defined_function));
+        let id = VarId::new_def(&mc.expect_as_string(Rule::numeric_defined_function));
         let parameters: Option<Vec<usize>> =
             match mc.maybe_collect_from(Rule::parameter_list, Rule::simple_numeric_variable) {
                 Some(v) => Some(v.iter().map(|p| vars::num_name_to_id( p.as_str().trim())).collect()),
@@ -754,7 +755,7 @@ impl AstBuilder {
         let mut pairs = pair.into_inner();
 
         // The id for the array
-        let id = vars::array_name_to_id(pairs.next().unwrap().as_str());
+        let id = VarId::new_array(pairs.next().unwrap().as_str());
 
         // Iterator over bounds pairs
         let mut bps = pairs.next().unwrap().into_inner();
@@ -947,7 +948,7 @@ impl AstBuilder {
     pub fn for_statement(pair: Pair, line: u16) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
-        let id = vars::num_name_to_id(pairs.next().unwrap().as_str());
+        let id = VarId::new_numeric(pairs.next().unwrap().as_str());
         
         let from = box Self::numeric_expression(pairs.next().unwrap())?;
         let to = box Self::numeric_expression(pairs.next().unwrap())?;
@@ -961,7 +962,7 @@ impl AstBuilder {
     }
 
     // for_body { block ~ next_line }
-    pub fn for_body(pair: Pair, id: usize) -> Result<Vec<AstNode>> {
+    pub fn for_body(pair: Pair, id: VarId) -> Result<Vec<AstNode>> {
         let mut pairs = pair.into_inner();
 
         let mut lines = Self::block(pairs.next().unwrap())?;
@@ -974,18 +975,17 @@ impl AstBuilder {
 
     // next_line = !{ line_number ~ next_statement ~ end_of_line }
     // next_statement = { "NEXT" ~ simple_numeric_variable }
-    pub fn next_line(pair: Pair, expected_id: usize) -> Result<AstNode> {
+    pub fn next_line(pair: Pair, expected_id: VarId) -> Result<AstNode> {
         let mut pairs = pair.clone().into_inner();
 
         let line = Self::line_number(pairs.next().unwrap());
 
         // Validate matching id, next_statement/simple_numeric_variable
         let sub_pair = first_child(pairs.next().unwrap());
-        let id = vars::num_name_to_id(sub_pair.as_str());
+        let id = VarId::new_numeric(sub_pair.as_str());
 
         if expected_id != id {
-            let m = format!("Mismatched NEXT, expected control variable {} but got {}", 
-                vars::id_to_num_name(expected_id), vars::id_to_num_name(id));
+            let m = format!("Mismatched NEXT, expected control variable {} but got {}", expected_id, id);
             Err(Error::new(&m, &pair)) // This may happen, we don't check this in the grammar
         }
         else {
@@ -1241,7 +1241,7 @@ impl AstBuilder {
     pub fn numeric_array_element(pair: Pair) -> Result<AstNode> {
         let mut pairs = pair.into_inner();
 
-        let id = vars::array_name_to_id(pairs.next().unwrap().as_str());
+        let id = VarId::new_array(pairs.next().unwrap().as_str());
 
         let mut sub_pairs = pairs.next().unwrap().into_inner();
 
@@ -1273,12 +1273,12 @@ impl AstBuilder {
     }
 
     pub fn simple_numeric_variable(pair: Pair) -> Result<AstNode> {
-        let id = vars::num_name_to_id(pair.as_str());
+        let id = VarId::new_numeric(pair.as_str());
         Ok(AstNode::NumRef(id))
     }
 
     pub fn string_variable(pair: Pair) -> Result<AstNode> {
-        let id = vars::string_name_to_id(pair.as_str());
+        let id = VarId::new_string(pair.as_str());
         Ok(AstNode::StringRef(id))
     }
 

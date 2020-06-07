@@ -1,10 +1,39 @@
-pub enum Value {
-    StringValue(String),
-    NumberValue(f32),
-    ArrayValue(Vec<Value>)
+use std::fmt;
+
+#[derive(Eq,Hash,PartialEq,Debug,Clone,Copy)]
+pub enum VarId {
+    Numeric(usize),
+    String(usize),
+    Array(usize),
+    Def(usize)
 }
 
+impl VarId {
+    pub fn new_numeric(name: &str) -> VarId {
+        VarId::Numeric(num_name_to_id(name))
+    }
+    pub fn new_string(name: &str) -> VarId {
+        VarId::String(string_name_to_id(name))
+    }
+    pub fn new_array(name: &str) -> VarId {
+        VarId::Array(array_name_to_id(name))
+    }
+    pub fn new_def(name: &str) -> VarId {
+        VarId::Def(def_name_to_id(name))
+    }
+}
 
+impl fmt::Display for VarId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let name = match self {
+            VarId::Numeric(id) => id_to_num_name(*id),
+            VarId::String(id) => id_to_string_name(*id),
+            VarId::Array(id) => format!("{}[]", id_to_array_name(*id)),
+            VarId::Def(id) => id_to_def_name(*id),
+        };
+        write!(f, "{}", name)
+    }
+}
 
 fn id_to_char(id: usize) -> char {
     assert!(id < 26, format!("Index {} out of range 0..26", id));
