@@ -39,7 +39,7 @@ impl Runner {
         }
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&self) -> Result<()> {
         // Normally we execute lines in order, so we use an iterator,
         // which we reset any time we do a jump
         {
@@ -89,14 +89,12 @@ impl Runner {
         state.array2_vars.declare(id, bound1, bound2)
     }
 
-    fn run_line(&mut self) -> Result<State> {
+    fn run_line(&self) -> Result<State> {
         let current = self.current();
 
         let mut next_index = current + 1;
 
         let line = &self.lines[current];
-
-        trace!("{}: Line {}", current, self.current_line_number());
 
         match line {
             AstNode::DimensionStatement{declarations, ..} => {
@@ -129,16 +127,13 @@ impl Runner {
                     box AstNode::NumRef(id) => {
                         let id = *id;
                         let value = self.evaluate_numeric(val)?;
-                        trace!("Assigning {} to {}", value, id);
                         self.set_num_var(id, value);
                     }
                     box AstNode::ArrayRef1{id, index} => {
                         let id = *id;
                         let index = self.evaluate_numeric(index)?;
                         let value = self.evaluate_numeric(val)?;
-
-                        trace!("Assigning {} to {}[{}]", value, id, index);
-                        self.set_num_var(id, value);
+                        self.set_array_var(id, index, value)?;
 
                     }
                     box AstNode::ArrayRef2{id, index1, index2} => {
@@ -146,15 +141,11 @@ impl Runner {
                         let index1 = self.evaluate_numeric(index1)?;
                         let index2 = self.evaluate_numeric(index2)?;
                         let value = self.evaluate_numeric(val)?;
-
-                        trace!("Assigning {} to {}[{},{}]", value, id, index1, index2);
-                        self.set_num_var(id, value);
+                        self.set_array_var2(id, index1, index2, value)?;
                     }
                     
                     box AstNode::StringRef(id) => {
                         let value = self.evaluate_string(val.as_ref())?;
-
-                        trace!("Assigning {} to {}", value, id);
                         self.set_string_var(*id, value);                       
                     }
 
@@ -185,46 +176,24 @@ impl Runner {
                         continue;
                     }
                 
+                    let mut bad_input = false;
                     for pair in vars.into_iter().zip(datums.into_iter()) {
-                        println!("{:?} {:?}", pair.0, pair.1);
-
                         let (variable, string_value) = pair;
 
-                        match variable {
-                            AstNode::StringRef(id,..) => self.set_string_var(*id, string_value),
-                            AstNode::NumRef(id,..) =>  {
-                                match string_value.parse::<f64>() {
-                                    Ok(n) => self.set_num_var(*id, n),
-                                    Err(_) => {
-                                        println!("Expecting a number! Got {}", string_value);
-                                        continue;
-                                    }
-                                }                              
+                        match self.assign_from_string(variable, string_value) {
+                            Err(e) => {
+                                println!("{}", e);
+                                bad_input = true;
+                                break;
                             }
-                            AstNode::ArrayRef1{id, index} => {
-                                let i = self.evaluate_numeric(&index)?;
-                                match string_value.parse::<f64>() {
-                                    Ok(n) => self.set_array_var(*id, i, n)?,
-                                    Err(_) => {
-                                        println!("Expecting a number! Got {}", string_value);
-                                        continue;
-                                    }
-                                }
-                            }
-                            AstNode::ArrayRef2{id, index1, index2} => {
-                                let i = self.evaluate_numeric(&index1)?;
-                                let j = self.evaluate_numeric(&index2)?;
-                                match string_value.parse::<f64>() {
-                                    Ok(n) => self.set_array_var2(*id, i, j, n)?,
-                                    Err(_) => {
-                                        println!("Expecting a number! Got {}", string_value);
-                                        continue;
-                                    }
-                                }
-                            }
-                            x => return Err(self.runtime_unexpected_node(&x))
+                            Ok(_) => ()
                         }
                     }
+
+                    if bad_input {
+                        continue;
+                    }
+
                     break;
                 }
             }
@@ -239,6 +208,8 @@ impl Runner {
                     None => 1.0
                 };
 
+                trace!("{} FOR {} = {} TO {} STEP {}", line, id, from_value, to_value, step_value);
+
                 // The initial value
                 self.set_num_var(id, from_value);
 
@@ -247,8 +218,6 @@ impl Runner {
                         for_line: self.current(),
                         limit: to_value,
                         step: step_value });
-
-                trace!("Started {} FOR {} = {} TO {} STEP {}", line, id, from_value, to_value, step_value);
             }
 
             AstNode::NextStatement{id, line} => {
@@ -302,21 +271,23 @@ impl Runner {
             x => return Err(self.runtime_unexpected_node(&x))
         }
 
-        assert!(next_index < self.lines.len(), "Should never fall off end!");
-
-        if next_index != current + 1 {
-            trace!("Jumping to {} (index={})", self.index_to_line_number(next_index), next_index)
-        }
-
-        self.set_current(next_index);
-
         match self.run_state() {
             State::Error(r) => {
                 error!("Runtime error");
                 Err(Error::RuntimeError(r.clone(), self.current_line_number()) )
             }
 
-            State::Running => Ok(State::Running),
+            State::Running => {
+                assert!(next_index < self.lines.len(), "Should never fall off end!");
+
+                if next_index != current + 1 {
+                    trace!("Jumping to {} (index={})", self.index_to_line_number(next_index), next_index)
+                }
+        
+                self.set_current(next_index);
+
+                Ok(State::Running)
+            }
 
             State::Ended => {
                 info!("Ended");
@@ -327,6 +298,30 @@ impl Runner {
                 Ok(State::Stopped)                
             }
         }
+    }
+
+    fn assign_from_string(&self, variable: &AstNode, string_value: String) -> Result<()> {
+        match variable {
+            AstNode::StringRef(id,..) => self.set_string_var(*id, string_value),
+
+            AstNode::NumRef(id,..) =>  {
+                let n = string_value.parse::<f64>()?;
+                self.set_num_var(*id, n);                            
+            }
+            AstNode::ArrayRef1{id, index} => {
+                let n = string_value.parse::<f64>()?;
+                let i = self.evaluate_numeric(&index)?;
+                self.set_array_var(*id, i, n)?;
+            }
+            AstNode::ArrayRef2{id, index1, index2} => {
+                let n = string_value.parse::<f64>()?;
+                let i = self.evaluate_numeric(&index1)?;
+                let j = self.evaluate_numeric(&index2)?;
+                self.set_array_var2(*id, i, j, n)?;
+            }
+            x => return Err(self.runtime_unexpected_node(&x))
+        }
+        Ok(())
     }
 
     fn evaluate_string(&self, expression: &AstNode) -> Result<String> {
@@ -349,6 +344,8 @@ impl Runner {
                         let left_string = self.evaluate_string(left)?;
                         let right_string = self.evaluate_string(right)?;
 
+                        trace!("Comparing {} with {} using {:?}", left_string, right_string, op);
+
                         match op {
                             OpCode::Ge => Ok(left_string >= right_string),
                             OpCode::Le => Ok(left_string <= right_string),
@@ -363,6 +360,8 @@ impl Runner {
                     box AstNode::NumericExpression(_) => {
                         let left_number = self.evaluate_numeric(left)?;
                         let right_number= self.evaluate_numeric(right)?;
+
+                        trace!("Comparing {} with {} using {:?}", left_number, right_number, op);
 
                         match op {
                             OpCode::Ge => Ok(left_number >= right_number),
@@ -423,7 +422,7 @@ impl Runner {
             OpCode::Log => Ok(v.log(10.0)),
             OpCode::Sgn => Ok(v.signum()),
             OpCode::Sin => Ok(v.sin()),
-            OpCode::Sqr => Ok(v*v),
+            OpCode::Sqr => Ok(v.sqrt()),
             OpCode::Tan => Ok(v.tan()),
             o => panic!("Unexpected op {:?} as mon_op", o)
         }
@@ -472,7 +471,11 @@ impl Runner {
     }
 
     fn set_array_var(&self, var_index: VarId, index: Number, value: Number) -> Result<()> {
-        self.state.borrow_mut().array_vars.set(var_index, index, value).map_err(|e| self.runtime_map_error(e))
+        trace!("Assign {} to {}[{}]", value, var_index, index);
+        let result = {
+            self.state.borrow_mut().array_vars.set(var_index, index, value)
+        };
+        result.map_err(|e| self.runtime_map_error(e))
     }
 
     fn get_array_var2(&self, var_index: VarId, index1: Number, index2: Number) -> Result<Number> {
@@ -482,7 +485,11 @@ impl Runner {
     }
 
     fn set_array_var2(&self, var_index: VarId, index1: Number, index2: Number, value: Number) -> Result<()> {
-        self.state.borrow_mut().array2_vars.set(var_index, index1, index2, value).map_err(|e| self.runtime_map_error(e))
+        trace!("Assign {} to {}[{},{}]", value, var_index, index1, index2);
+        let result = {
+            self.state.borrow_mut().array2_vars.set(var_index, index1, index2, value)
+        };
+        result.map_err(|e| self.runtime_map_error(e))
     }
 
     fn get_num_var(&self, index: VarId) -> Result<Number> {
@@ -491,6 +498,7 @@ impl Runner {
     }
 
     fn set_num_var(&self, index: VarId, value: Number) {
+        trace!("Assign {} to {}", value, index);
         self.state.borrow_mut().numeric_vars.set(index, value);
     }
 
@@ -501,6 +509,7 @@ impl Runner {
     }
 
     fn set_string_var(&self, index: VarId, value: String) {
+        trace!("Assigning {} to {}", value, index);
         self.state.borrow_mut().string_vars.set(index, value);
     }
 

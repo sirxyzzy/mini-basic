@@ -195,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         trace!("Parsing {}", path.display());
         match parse_file(&path, &options) {
-            Err(e) => error!("Parse failed {}", e),
+            Err(e) => error!("{}", e),
             Ok(_info) => ()
         }
         trace!("Took {}ms", now.elapsed().as_millis()); 

@@ -64,7 +64,8 @@ impl<T: Clone+Default> ArrayStore<T> {
     }
 
     pub fn declare(&mut self, id: VarId, bound: usize) -> Result<()> {
-        self.things.insert(id, vec![Default::default(); bound]);
+        // plus 1 on bound, cuz Basic does that
+        self.things.insert(id, vec![Default::default(); bound+1]);
         Ok(())
     }
 
@@ -107,7 +108,7 @@ impl<T: Clone+Default> Array2Store<T> {
     }
 
     pub fn declare(&mut self, id: VarId, bound1: usize, bound2: usize) -> Result<()> {
-        self.things.insert(id, (bound2, vec![Default::default(); bound1 * bound2]));
+        self.things.insert(id, (bound2 + 1, vec![Default::default(); (bound1 + 1) * (bound2 + 1)]));
         Ok(())
     }
    
