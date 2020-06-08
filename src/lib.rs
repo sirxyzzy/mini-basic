@@ -7,6 +7,9 @@ extern crate itertools;
 extern crate rand;
 
 #[macro_use]
+extern crate lazy_static;
+
+#[macro_use]
 extern crate pest_derive;
 
 #[macro_use]
@@ -101,7 +104,7 @@ pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()
     }
 
     trace!("Executing program");
-    let runner = interpret::Runner::new(ast);
+    let mut runner = interpret::Runner::new(ast);
 
     runner.run()?;
 

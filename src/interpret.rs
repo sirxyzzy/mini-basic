@@ -1,11 +1,11 @@
-
-
 use super::*;
 use super::ast::*;
 use std::collections::{HashMap};
 use std::cell::RefCell;
 use std::io;
+use std::io::Write;
 use vm::*;
+use regex::Regex;
 
 #[derive(PartialEq,Debug,Clone)]
 pub enum State {
@@ -18,6 +18,7 @@ pub struct Runner {
     lines: Vec<AstNode>,
     line_index: HashMap<u16, usize>, // Line number to index of line in lines vector
 
+    // I hate this RefCell!
     state: RefCell<vm::VirtualMachine>
 }
 
@@ -33,12 +34,12 @@ impl Runner {
 
         Runner { 
             lines, 
-            line_index, 
+            line_index,
             state: RefCell::new(vm::VirtualMachine::new())
         }
     }
 
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&mut self) -> Result<()> {
         // Normally we execute lines in order, so we use an iterator,
         // which we reset any time we do a jump
         {
@@ -66,10 +67,14 @@ impl Runner {
         Ok(())
     }
 
-    fn read_line(&self) -> Result<String> {
+    fn read_line(&self) -> String {
         let mut response = String::new();
-        io::stdin().read_line(&mut response)?;
-        Ok(response)
+        io::stdout().write_all(b"? ").unwrap();
+        let _ = io::stdout().flush();
+        match io::stdin().read_line(&mut response) {
+            Ok(_) => response.trim().to_string(),
+            Err(e) => panic!("Why can't I read input! {}", e)
+        }
     }
 
     fn declare_array1(&self, id:VarId, bound: usize) -> Result<()> {
@@ -84,7 +89,7 @@ impl Runner {
         state.array2_vars.declare(id, bound1, bound2)
     }
 
-    fn run_line(&self) -> Result<State> {
+    fn run_line(&mut self) -> Result<State> {
         let current = self.current();
 
         let mut next_index = current + 1;
@@ -122,25 +127,28 @@ impl Runner {
             AstNode::LetStatement{var, val, ..} => {
                 match var {
                     box AstNode::NumRef(id) => {
+                        let id = *id;
                         let value = self.evaluate_numeric(val)?;
                         trace!("Assigning {} to {}", value, id);
-                        self.set_num_var(*id, value);
+                        self.set_num_var(id, value);
                     }
                     box AstNode::ArrayRef1{id, index} => {
+                        let id = *id;
                         let index = self.evaluate_numeric(index)?;
                         let value = self.evaluate_numeric(val)?;
 
                         trace!("Assigning {} to {}[{}]", value, id, index);
-                        self.set_num_var(*id, value);
+                        self.set_num_var(id, value);
 
                     }
                     box AstNode::ArrayRef2{id, index1, index2} => {
+                        let id = *id;
                         let index1 = self.evaluate_numeric(index1)?;
                         let index2 = self.evaluate_numeric(index2)?;
                         let value = self.evaluate_numeric(val)?;
 
                         trace!("Assigning {} to {}[{},{}]", value, id, index1, index2);
-                        self.set_num_var(*id, value);
+                        self.set_num_var(id, value);
                     }
                     
                     box AstNode::StringRef(id) => {
@@ -170,19 +178,60 @@ impl Runner {
             AstNode::DataStatement{..} => (),
 
             AstNode::InputStatement{vars,..} => {
-                for v in vars {
-                    match v {
-                        AstNode::StringRef(id,..) => self.set_string_var(*id, self.read_line()?),
-                        AstNode::NumRef(id,..) =>  {
-                            let number = self.read_line()?.trim().parse::<f64>()?;
-                            self.set_num_var(*id, number)
-                        }
-                        x => return Err(self.runtime_unexpected_node(&x))
+                loop {
+                    let datums = self.read_datums();
+                    if datums.len() != vars.len() {
+                        println!("Got {} values, but expected {}", datums.len(), vars.len());
+                        continue;
                     }
+                
+                    for pair in vars.into_iter().zip(datums.into_iter()) {
+                        println!("{:?} {:?}", pair.0, pair.1);
+
+                        let (variable, string_value) = pair;
+
+                        match variable {
+                            AstNode::StringRef(id,..) => self.set_string_var(*id, string_value),
+                            AstNode::NumRef(id,..) =>  {
+                                match string_value.parse::<f64>() {
+                                    Ok(n) => self.set_num_var(*id, n),
+                                    Err(_) => {
+                                        println!("Expecting a number! Got {}", string_value);
+                                        continue;
+                                    }
+                                }                              
+                            }
+                            AstNode::ArrayRef1{id, index} => {
+                                let i = self.evaluate_numeric(&index)?;
+                                match string_value.parse::<f64>() {
+                                    Ok(n) => self.set_array_var(*id, i, n)?,
+                                    Err(_) => {
+                                        println!("Expecting a number! Got {}", string_value);
+                                        continue;
+                                    }
+                                }
+                            }
+                            AstNode::ArrayRef2{id, index1, index2} => {
+                                let i = self.evaluate_numeric(&index1)?;
+                                let j = self.evaluate_numeric(&index2)?;
+                                match string_value.parse::<f64>() {
+                                    Ok(n) => self.set_array_var2(*id, i, j, n)?,
+                                    Err(_) => {
+                                        println!("Expecting a number! Got {}", string_value);
+                                        continue;
+                                    }
+                                }
+                            }
+                            x => return Err(self.runtime_unexpected_node(&x))
+                        }
+                    }
+                    break;
                 }
             }
 
             AstNode::ForStatement{id, from, to, step, line} => {
+                let id = *id;
+                let line = *line;
                 let from_value = self.evaluate_numeric(from)?;
                 let to_value = self.evaluate_numeric(to)?;
                 let step_value = match step {
@@ -191,7 +240,7 @@ impl Runner {
                 };
 
                 // The initial value
-                self.set_num_var(*id, from_value);
+                self.set_num_var(id, from_value);
 
                 self.push_for(
                     vm::ForContext {
@@ -203,18 +252,20 @@ impl Runner {
             }
 
             AstNode::NextStatement{id, line} => {
+                let id = *id;
+                let line = *line;
                 let context = self.peek_for();
 
                 match context {
                     Some(context) => {
-                        let v = self.get_num_var(*id).expect("Where is my for loop index variable?");
+                        let v = self.get_num_var(id).expect("Where is my for loop index variable?");
 
                         let step = context.step;
 
                         let v1 = v + step;
 
                         // Even if we hit our limit, the index variable should be seen to be incremented
-                        self.set_num_var(*id, v1);
+                        self.set_num_var(id, v1);
 
                         let ended = 
                             if step < 0.0 {
@@ -417,18 +468,25 @@ impl Runner {
     }
 
     fn get_array_var(&self, var_index: VarId, index: Number) -> Result<Number> {
-        self.state.borrow().array_vars.get(var_index, index.round() as usize).map_err(|e| self.runtime_map_error(e))
+        self.state.borrow().array_vars.get(var_index, index).map_err(|e| self.runtime_map_error(e))
+    }
+
+    fn set_array_var(&self, var_index: VarId, index: Number, value: Number) -> Result<()> {
+        self.state.borrow_mut().array_vars.set(var_index, index, value).map_err(|e| self.runtime_map_error(e))
     }
 
     fn get_array_var2(&self, var_index: VarId, index1: Number, index2: Number) -> Result<Number> {
         self.state.borrow()
-            .array2_vars.get(var_index, index1.round() as usize, index2.round() as usize)
+            .array2_vars.get(var_index, index1, index2)
             .map_err(|e| self.runtime_map_error(e))
     }
 
+    fn set_array_var2(&self, var_index: VarId, index1: Number, index2: Number, value: Number) -> Result<()> {
+        self.state.borrow_mut().array2_vars.set(var_index, index1, index2, value).map_err(|e| self.runtime_map_error(e))
+    }
+
     fn get_num_var(&self, index: VarId) -> Result<Number> {
-        self.state.borrow()
-            .numeric_vars.get(index)
+        self.state.borrow().numeric_vars.get(index)
             .map_err(|e| self.runtime_map_error(e))
     }
 
@@ -480,5 +538,23 @@ impl Runner {
 
     fn peek_for(&self) -> Option<ForContext> {
         self.state.borrow().for_stack.peek()
+    }
+
+    pub fn read_datums(&self) -> Vec<String> {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r#" *"([^"]*)" *| *([^,]*)"#).unwrap();
+        }
+
+        let input = self.read_line();
+        let mut datums: Vec<String> = vec![];
+        for cap in RE.captures_iter(&input) {
+            match cap.get(1).or(cap.get(2)) {
+                Some(m) => {
+                    datums.push(m.as_str().trim().to_string())
+                }
+                None => panic!("Whoops") // Due to the regex, we should never get here
+            }
+        }
+        datums
     }
 }

@@ -10,7 +10,7 @@ use super::vars::VarId;
 
 
 // Since the tree is immutable, we can build it with refs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AstNode {
     Program {
         lines: Vec<AstNode>

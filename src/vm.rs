@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{HashMap};
 use super::interpret::*;
+use super::ast::*;
 use super::vars::VarId;
 
 #[derive(Debug,Copy,Clone)]
@@ -67,7 +68,8 @@ impl<T: Clone+Default> ArrayStore<T> {
         Ok(())
     }
 
-    pub fn get(&self, id: VarId, index: usize) -> Result<T> {
+    pub fn get(&self, id: VarId, index: Number) -> Result<T> {
+        let index = index.round() as usize;
         match self.things.get(&id) {
             Some(v1) => {
                 if index >= v1.len() {
@@ -80,7 +82,8 @@ impl<T: Clone+Default> ArrayStore<T> {
         }
     }
 
-    pub fn set(&mut self, id: VarId, index: usize, value: T) -> Result<()> {
+    pub fn set(&mut self, id: VarId, index: Number, value: T) -> Result<()> {
+        let index = index.round() as usize;
         let v = self.things.entry(id).or_insert_with(||  vec![Default::default(); 11]);
         // The rules are arrays get auto created, size 11 (indexes 0..10) if they don't 
         // exist already!
@@ -108,7 +111,9 @@ impl<T: Clone+Default> Array2Store<T> {
         Ok(())
     }
    
-    pub fn get(&self, id: VarId, index1: usize, index2: usize) -> Result<T> {
+    pub fn get(&self, id: VarId, index1: Number, index2: Number) -> Result<T> {
+        let index1 = index1.round() as usize;
+        let index2 = index2.round() as usize;
         match self.things.get(&id) {
             Some((bound, v1)) => {
                 if index2 >= *bound {
@@ -130,7 +135,9 @@ impl<T: Clone+Default> Array2Store<T> {
         }
     }
 
-    pub fn set(&mut self, id: VarId, index1: usize, index2: usize, value: T) -> Result<()> {
+    pub fn set(&mut self, id: VarId, index1: Number, index2: Number, value: T) -> Result<()> {
+        let index1 = index1.round() as usize;
+        let index2 = index2.round() as usize;
         match self.things.get_mut(&id) {
             Some((bound, v)) => {
                 if index2 > *bound {
@@ -174,7 +181,62 @@ impl VirtualMachine {
             array2_vars: Array2Store::<Number>::new(),
             string_vars: VarStore::<String>::new(),        
         }
-    } 
+    }
+    
+    
+    fn evaluate_numeric(&self, expression: &AstNode) -> Result<Number> {
+        match expression {
+            AstNode::NumericExpression(e) => self.evaluate_numeric(e), // At the top level, we may have a numeric expression node
+            AstNode::BinOp{op, left, right} => self.evaluate_binop(op, left, right),
+            AstNode::MonOp{op, arg} => self.evaluate_monop(op, arg),
+            AstNode::Op(op) => self.evaluate_op(op),
+    
+            AstNode::NumVal(x) => Ok(*x),
+            AstNode::NumRef(id) =>  Ok(self.numeric_vars.get(*id)?),
+            AstNode::ArrayRef1{id, index} => Ok(self.array_vars.get(*id, self.evaluate_numeric(index)?)?),
+            AstNode::ArrayRef2{id, index1, index2} => Ok(self.array2_vars.get(*id, 
+                                                            self.evaluate_numeric(index1)?,
+                                                            self.evaluate_numeric(index2)?)?), 
+
+            x => panic!("Unexpected node in expression {:?} as bin_op", x)
+        }
+    }
+
+    fn evaluate_binop(&self, op: &OpCode, left: &AstNode, right: &AstNode) -> Result<Number> {
+        match op {
+            OpCode::Plus => Ok(self.evaluate_numeric(left)? + self.evaluate_numeric(right)?),
+            OpCode::Minus => Ok(self.evaluate_numeric(left)? - self.evaluate_numeric(right)?),
+            OpCode::Multiply => Ok(self.evaluate_numeric(left)? * self.evaluate_numeric(right)?),
+            OpCode::Divide => Ok(self.evaluate_numeric(left)? / self.evaluate_numeric(right)?),
+            OpCode::Pow => Ok(self.evaluate_numeric(left)?.powf(self.evaluate_numeric(right)?)),
+            o => panic!("Unexpected op {:?} as bin_op", o)
+        }
+    }
+
+    fn evaluate_monop(&self, op: &OpCode, operand: &AstNode) -> Result<Number> {
+        let v = self.evaluate_numeric(operand)?;
+        match op {
+            OpCode::Abs => Ok(v.abs()),
+            OpCode::Atn => Ok(v.atan()),
+            OpCode::Cos => Ok(v.cos()),
+            OpCode::Exp => Ok(v.exp()),
+            OpCode::Int => Ok(v.round()),
+            OpCode::Log => Ok(v.log(10.0)),
+            OpCode::Sgn => Ok(v.signum()),
+            OpCode::Sin => Ok(v.sin()),
+            OpCode::Sqr => Ok(v*v),
+            OpCode::Tan => Ok(v.tan()),
+            o => panic!("Unexpected op {:?} as mon_op", o)
+        }
+    }
+
+    fn evaluate_op(&self, op: &OpCode) -> Result<Number> {
+        match op {
+            OpCode::Rnd => Ok(rand::random::<Number>()),
+            o => panic!("Unexpected op {:?} as op", o)
+        }
+    }
+
 }
 
 

@@ -17,5 +17,6 @@ env_logger = "0.7"
 itertools = "0.9"
 thiserror = "1.0"
 rand = "0.7"
+lazy_static = "1.4"
 
 
