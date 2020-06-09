@@ -89,6 +89,31 @@ impl Runner {
         state.array2_vars.declare(id, bound1, bound2)
     }
 
+    // Basic's default formatting rules are strange!
+    fn format_number(number: Number) -> String {
+        let mut sign = ' ';
+        let mut v = number;
+        if v < 0.0 {
+            sign = '-';
+            v = v.abs();
+        }
+
+        if v > 100000000.0 || v < 0.000000001 {
+            // Force exponential format, note bug here
+            // Basic likes always signed exponents
+            // for example, 4.E+24 instead of our 4E24
+            format!("{}{:E} ", sign, v)
+        } else {
+            // We need to squelch the leading 0., if we get it
+            let s = format!("{}", v);
+            if s.starts_with("0.") {
+                format!("{}{} ", sign, s[1..].to_string())
+            } else {
+                format!("{}{} ", sign, s)
+            }
+        }
+    }
+
     fn run_line(&self) -> Result<State> {
         let current = self.current();
 
@@ -106,11 +131,23 @@ impl Runner {
                     }
                 }
             }
+            AstNode::StopStatement{..} => {
+                self.set_run_state(State::Stopped);
+            }
             AstNode::EndStatement{..} => {
                 self.set_run_state(State::Ended);
             }
             AstNode::GotoStatement{line_ref, ..} => {
                 next_index = self.line_number_to_index(*line_ref)?;
+            }
+            AstNode::OnGotoStatement{expr, line_refs, ..} => {
+                let value = self.evaluate_numeric(expr)?.round();
+                if value < 1.0 || value as usize > line_refs.len() {
+                    return Err(self.runtime_error("On goto variable out of range"))
+                }
+                let line_ref = line_refs[value as usize - 1];
+
+                next_index = self.line_number_to_index(line_ref)?;
             }
             AstNode::GosubStatement{line_ref, ..} => {
                 next_index = self.line_number_to_index(*line_ref)?;
@@ -118,7 +155,7 @@ impl Runner {
             }
             AstNode::ReturnStatement{..} => {
                 match self.pop() {
-                    Some(v) => next_index = v,
+                    Some(v) => next_index = v + 1,
                     None => self.stop_running("Returned too many times! Stack empty"),
                 }
             }
@@ -153,17 +190,38 @@ impl Runner {
                 }
             }
             AstNode::PrintStatement{items, ..} => {
+
+                let mut ended_with_semi = false;
                 for item in items {
+                    ended_with_semi = false;
                     match item {
-                        AstNode::PrintComma => print!("\t"),
-                        AstNode::PrintSemi =>  print!(" "),
-                        AstNode::TabCall(_) => (/* what? */),
-                        AstNode::StringExpression(expression) => print!("{}", self.evaluate_string(expression)?),
-                        AstNode::NumericExpression(expression) => print!("{}", self.evaluate_numeric(expression)?),
+                        AstNode::PrintComma => self.state.borrow_mut().print_buffer.tab(),
+                        AstNode::PrintSemi =>  ended_with_semi = true,
+                        AstNode::TabCall(expr) => {
+                            let t = self.evaluate_numeric(expr)?;
+
+                            if t < 1.0 {
+                                return Err(self.runtime_error("Tab call less than 1"));
+                            }  
+                            self.state.borrow_mut().print_buffer.tabstop(t);
+                        }
+
+                        AstNode::StringExpression(expression) => {
+                            let s = &self.evaluate_string(expression)?;
+                            self.state.borrow_mut().print_buffer.add(s);
+                        }
+
+                        AstNode::NumericExpression(expression) => {
+                            let v = self.evaluate_numeric(expression)?;
+                            let s = Self::format_number(v);
+                            self.state.borrow_mut().print_buffer.add(&s)
+                        }
                         x => return Err(self.runtime_unexpected_node(&x))
                     }
                 }
-                println!();
+                if !ended_with_semi {
+                    self.state.borrow_mut().print_buffer.print();
+                }
             }
             AstNode::RemarkStatement{..} => (),
             AstNode::DataStatement{..} => (),
@@ -216,6 +274,7 @@ impl Runner {
                 self.push_for(
                     vm::ForContext {
                         for_line: self.current(),
+                        for_var: id,
                         limit: to_value,
                         step: step_value });
             }
@@ -227,6 +286,7 @@ impl Runner {
 
                 match context {
                     Some(context) => {
+                        assert_eq!(id, context.for_var, "Error, NEXT {} did not match FOR {}", id, context.for_var);
                         let v = self.get_num_var(id).expect("Where is my for loop index variable?");
 
                         let step = context.step;
@@ -424,6 +484,8 @@ impl Runner {
             OpCode::Sin => Ok(v.sin()),
             OpCode::Sqr => Ok(v.sqrt()),
             OpCode::Tan => Ok(v.tan()),
+            OpCode::Plus => Ok(v),
+            OpCode::Minus => Ok(-v),
             o => panic!("Unexpected op {:?} as mon_op", o)
         }
     }

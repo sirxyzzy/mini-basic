@@ -962,12 +962,25 @@ impl AstBuilder {
     }
 
     // for_body { block ~ next_line }
-    pub fn for_body(pair: Pair, id: VarId) -> Result<Vec<AstNode>> {
-        let mut pairs = pair.into_inner();
+    pub fn for_body(pair: Pair, for_id: VarId) -> Result<Vec<AstNode>> {
+        let mut pairs = pair.clone().into_inner();
 
         let mut lines = Self::block(pairs.next().unwrap())?;
 
-        let next_line = Self::next_line(pairs.next().unwrap(), id)?;
+        // Special case here, if in my block I see a FOR over the same variable, barf
+        for line in &lines {
+            match line {
+                AstNode::ForStatement{id, line, ..} => {
+                    if *id == for_id {
+                        let msg = format!("Cannot have a nested FOR at line {} with the same id {}", line, id);
+                        return Err(Error::new(&msg, &pair))
+                    }
+                }
+                _ => ()
+            }
+        }
+
+        let next_line = Self::next_line(pairs.next().unwrap(), for_id)?;
         lines.push(next_line);
 
         Ok(lines)

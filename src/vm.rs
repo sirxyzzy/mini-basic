@@ -7,8 +7,55 @@ use super::vars::VarId;
 #[derive(Debug,Copy,Clone)]
 pub struct ForContext {
     pub for_line: usize,
+    pub for_var: VarId,
     pub limit: Number,
     pub step: Number
+}
+
+
+pub struct PrintBuffer {
+    line: String,
+    zone_size: usize
+}
+
+impl PrintBuffer {
+    pub fn new() -> PrintBuffer {
+        PrintBuffer { line: String::with_capacity(120), zone_size: 14 }
+    }
+
+    pub fn add(&mut self, text: &str) {
+        self.line.push_str(text);
+    }
+
+    pub fn tab(&mut self) {
+        // Pad to the next zone
+        let padding = self.zone_size - (self.line.len() % self.zone_size);
+
+        for _i in 0..padding {
+            self.line.push(' ');
+        }
+    }
+
+    pub fn tabstop(&mut self, tab_size: Number) {
+        assert!(tab_size >= 1.0);
+        let size = tab_size.round() as usize - 1;
+
+        if size < self.line.len() {
+            // This will reduce the line size to zero
+            self.print();
+        }
+
+        let padding = size - self.line.len();
+
+        for _i in 0..padding {
+            self.line.push(' ');
+        }
+    }
+
+    pub fn print(&mut self) {
+        println!("{}", self.line);
+        self.line.clear();
+    }
 }
 
 pub struct VmStack<T:Copy> {
@@ -168,6 +215,7 @@ pub struct VirtualMachine {
     pub array_vars: ArrayStore<Number>,
     pub array2_vars: Array2Store<Number>,
     pub string_vars: VarStore<String>,
+    pub print_buffer: PrintBuffer,
 }
 
 impl VirtualMachine {
@@ -180,10 +228,10 @@ impl VirtualMachine {
             numeric_vars: VarStore::<Number>::new(),
             array_vars: ArrayStore::<Number>::new(),
             array2_vars: Array2Store::<Number>::new(),
-            string_vars: VarStore::<String>::new(),        
+            string_vars: VarStore::<String>::new(),
+            print_buffer: PrintBuffer::new()        
         }
     }
-    
     
     fn evaluate_numeric(&self, expression: &AstNode) -> Result<Number> {
         match expression {

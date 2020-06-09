@@ -142,13 +142,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             expect_error = true;
                         }
-                        else
-                        {
-                            if opts.verbose {
-                                println!("Skipping file doesn't look right: {}", path.display());
-                            }
-                            continue
-                        }
                     }
                     None => { 
                         error!("NBS file could not be read {:?}", path.display());
