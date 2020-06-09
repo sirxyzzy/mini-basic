@@ -208,6 +208,7 @@ impl<T: Clone+Default> Array2Store<T> {
 
 pub struct VirtualMachine {
     pub current: usize,  // index into lines...
+    pub data_cursor: usize, // index into data
     pub run_state: State,
     pub call_stack: VmStack<usize>,
     pub for_stack: VmStack<ForContext>,
@@ -221,7 +222,8 @@ pub struct VirtualMachine {
 impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         VirtualMachine {
-            current: 0,  // index into lines...
+            current: 0,
+            data_cursor: 0,
             run_state: State::Stopped,
             call_stack: VmStack::<usize>::new(),
             for_stack: VmStack::<ForContext>::new(),

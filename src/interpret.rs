@@ -17,6 +17,7 @@ pub type Number = f64;
 pub struct Runner {
     lines: Vec<AstNode>,
     line_index: HashMap<u16, usize>, // Line number to index of line in lines vector
+    data: Vec<String>,
 
     // I hate this RefCell!
     state: RefCell<vm::VirtualMachine>
@@ -32,9 +33,25 @@ impl Runner {
 
         let line_index: HashMap<u16, usize> = lines.iter().enumerate().map(|p| (get_line_number(p.1), p.0)).collect();
 
+        let mut data: Vec<String> = vec![];
+        for line in lines.iter() {
+            match line {
+                AstNode::DataStatement{datums, line} => {
+                    for datum in datums {
+                        match datum {
+                            AstNode::StringVal(s) => data.push(s.clone()),
+                            x => panic!("Whoops, unhandled AST node {:?} extracting data {}", x, line)
+                        }
+                    }
+                }
+                _ => ()
+            }
+        }
+
         Runner { 
             lines, 
             line_index,
+            data,
             state: RefCell::new(vm::VirtualMachine::new())
         }
     }
@@ -224,7 +241,24 @@ impl Runner {
                 }
             }
             AstNode::RemarkStatement{..} => (),
-            AstNode::DataStatement{..} => (),
+            AstNode::DataStatement{..} => (), // Already processed on startup, ignore
+
+            AstNode::ReadStatement{vars, ..} => {
+                let count = vars.len();
+                let mut data_cursor = self.state.borrow().data_cursor;
+                if count > 0 {
+                    for v in vars.iter() {
+                        if data_cursor >= self.data.len() {
+                            return Err(self.runtime_error("Ran out of data in read statement"))
+                        }
+                        self.assign_from_string(v, self.data[data_cursor].clone())?;
+                        data_cursor += 1;
+                    }
+                    self.state.borrow_mut().data_cursor = data_cursor;
+                }
+            }
+
+            AstNode::RestoreStatement{..} => self.state.borrow_mut().data_cursor = 0,
 
             AstNode::InputStatement{vars,..} => {
                 loop {
@@ -270,6 +304,10 @@ impl Runner {
 
                 // The initial value
                 self.set_num_var(id, from_value);
+
+                // Waaaaah, have test here to see we could hit the limit, or have already
+                // and skip beyond next
+                bugger bugger
 
                 self.push_for(
                     vm::ForContext {
