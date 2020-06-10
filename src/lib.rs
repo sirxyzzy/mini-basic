@@ -82,8 +82,8 @@ pub struct ParseOptions {
     pub show_ast: bool
 }
 
-/// Parse a single file
-pub fn parse_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> {
+/// Run a single file
+pub fn run_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> {
     
     trace!("Reading {}", path.as_ref().display());
     let source = fs::read_to_string(path)?; 

@@ -35,7 +35,7 @@ pub enum AstNode {
     RestoreStatement{ line: u16 },
     ReturnStatement{ line: u16 },
     StopStatement{ line: u16 },
-    ForStatement{ line: u16, id: VarId, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>},
+    ForStatement{ line: u16, id: VarId, from: Box<AstNode>, to: Box<AstNode>, step: Option<Box<AstNode>>, next_line:u16},
     NextStatement{ line: u16, id: VarId},
     EndStatement{ line: u16 },
 
@@ -919,6 +919,16 @@ impl AstBuilder {
 
     // for_block = { for_line ~ for_body }
     pub fn for_block(pair: Pair) -> Result<Vec<AstNode>> {
+
+        // Helper for patching the line number into an existing for statement
+        fn patch_for(for_line: AstNode, next_line: u16) -> Option<AstNode> {
+            match for_line {
+                AstNode::ForStatement{line, id, from, to, step, ..} =>
+                    Some(AstNode::ForStatement{line, id, from, to, step, next_line}),
+                _ => None
+            }
+        }
+
         let mut lines: Vec<AstNode> = Vec::new();
 
         let mut pairs = pair.into_inner();
@@ -927,7 +937,15 @@ impl AstBuilder {
         match for_line {
             AstNode::ForStatement{id,..} => {
                 let mut body_lines = Self::for_body(pairs.next().unwrap(), id)?;
-                lines.push(for_line);
+
+                // We really wan teh line number of the next as part of the for node
+                // and we know the last line is (by definition) the next line
+                // The unwrap is safe, there has to be AT LEAST a next statement
+                let next_line_number = get_line_number(&body_lines.last().unwrap());
+
+                // Recreate the for statement, so we can patch up the line number
+                lines.push(patch_for(for_line, next_line_number).unwrap());
+
                 lines.append(&mut body_lines);
                 Ok(lines)
             },
@@ -958,7 +976,8 @@ impl AstBuilder {
             None => None
         };
 
-        Ok(AstNode::ForStatement{line, id, from, to, step})
+        // Note, we don't yet know the next line, so just plant a zero
+        Ok(AstNode::ForStatement{line, id, from, to, step, next_line:0})
     }
 
     // for_body { block ~ next_line }

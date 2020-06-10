@@ -290,7 +290,7 @@ impl Runner {
                 }
             }
 
-            AstNode::ForStatement{id, from, to, step, line} => {
+            AstNode::ForStatement{id, from, to, step, line, next_line} => {
                 let id = *id;
                 let line = *line;
                 let from_value = self.evaluate_numeric(from)?;
@@ -305,16 +305,19 @@ impl Runner {
                 // The initial value
                 self.set_num_var(id, from_value);
 
-                // Waaaaah, have test here to see we could hit the limit, or have already
-                // and skip beyond next
-                bugger bugger
-
-                self.push_for(
-                    vm::ForContext {
-                        for_line: self.current(),
-                        for_var: id,
-                        limit: to_value,
-                        step: step_value });
+                // We have to test here to see we could hit the limit, or have already
+                // and skip beyond next, for this, we need a for to know where its next is
+                if Self::for_are_we_done_yet(from_value, to_value, step_value) {
+                    // Past limit, so goto line after my next statement
+                    next_index = self.line_number_to_index(*next_line)? + 1;
+                } else {
+                    self.push_for(
+                        vm::ForContext {
+                            for_line: self.current(),
+                            for_var: id,
+                            limit: to_value,
+                            step: step_value });
+                }
             }
 
             AstNode::NextStatement{id, line} => {
@@ -334,14 +337,7 @@ impl Runner {
                         // Even if we hit our limit, the index variable should be seen to be incremented
                         self.set_num_var(id, v1);
 
-                        let ended = 
-                            if step < 0.0 {
-                                // Negative range, not sure if that is allowed!
-                                v1 < context.limit
-                            } else {
-                                // Positive range
-                                v1 > context.limit
-                            };
+                        let ended = Self::for_are_we_done_yet(v1, context.limit, step);
 
                         if !ended {
                             trace!("NEXT {} is {}", id, v1);
@@ -350,6 +346,7 @@ impl Runner {
                         } else {
                             self.pop_for();
                             trace!("Ended {} NEXT {}", line, id);
+                            // By default we will advance to the line after the next statement
                         }
                     },
                     None => return Err(self.runtime_error("Encountered next outside for loop!"))
@@ -647,6 +644,10 @@ impl Runner {
 
     fn peek_for(&self) -> Option<ForContext> {
         self.state.borrow().for_stack.peek()
+    }
+
+    fn for_are_we_done_yet(value: Number, limit:Number, step:Number) -> bool {
+        (value - limit) * step.signum() > 0.0 
     }
 
     pub fn read_datums(&self) -> Vec<String> {
