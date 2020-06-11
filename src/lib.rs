@@ -79,11 +79,12 @@ pub enum Error {
 
 pub struct ParseOptions {
     pub show_parse_tree: bool,
-    pub show_ast: bool
+    pub show_ast: bool,
+    pub run: bool,
 }
 
 /// Run a single file
-pub fn run_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> {
+pub fn parse<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> {
     
     trace!("Reading {}", path.as_ref().display());
     let source = fs::read_to_string(path)?; 
@@ -103,10 +104,12 @@ pub fn run_file<P: AsRef<Path>>(path: &P, options: &ParseOptions) -> Result<()> 
         ast::print_ast(&ast);
     }
 
-    trace!("Executing program");
-    let runner = interpret::Runner::new(ast);
+    if options.run {
+        trace!("Executing program");
+        let runner = interpret::Runner::new(ast);
 
-    runner.run()?;
+        runner.run()?;
+    }
 
     Ok(())
 }

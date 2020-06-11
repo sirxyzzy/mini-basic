@@ -10,7 +10,7 @@ extern crate anyhow;
 extern crate mini_basic;
 extern crate regex;
 
-use mini_basic::{run_file, ParseOptions};
+use mini_basic::{parse, ParseOptions};
 use std::path::{ Path, PathBuf };
 use walkdir::WalkDir;
 use std::time::Instant;
@@ -61,7 +61,10 @@ struct Opts {
 
     /// Run NBS tests
     #[clap(long)]
-    nbs: bool
+    nbs: bool,
+
+    #[clap(short,long)]
+    run: bool,
 }
 
 lazy_static! {
@@ -201,7 +204,8 @@ fn main() -> Result<()> {
   
     let path = OPTS.source.clone();
     
-    let options = ParseOptions { show_parse_tree: OPTS.parse_tree, show_ast: OPTS.ast};
+    // Pass some options right through
+    let options = ParseOptions { show_parse_tree: OPTS.parse_tree, show_ast: OPTS.ast, run: OPTS.run};
 
     if OPTS.nbs  {
 
@@ -228,7 +232,7 @@ fn main() -> Result<()> {
             match check_nbs(&path) {
                 None => continue,
                 Some((expect_error, nbs_header)) => {
-                    match run_file(&path, &options) {
+                    match parse(&path, &options) {
                         Ok(_info) => {
                             if expect_error {
                                 error!("Parse succeeded for {} which was not expected", path.display());
@@ -286,7 +290,7 @@ fn main() -> Result<()> {
                 
                 trace!("Considering {}", path.display());   
     
-                match run_file(&path, &options) {
+                match parse(&path, &options) {
                     Ok(_info) => {
                         parsed_ok += 1;
                         if OPTS.verbose {
@@ -307,10 +311,10 @@ fn main() -> Result<()> {
                 }
             }
     
-            println!("{} files parsed, {} files failed to parse in {}ms", parsed_ok, parse_failed, now.elapsed().as_millis());
+            println!("{} files read, {} ok, {} failed parse, in {}ms", parsed_ok + parse_failed, parsed_ok, parse_failed, now.elapsed().as_millis());
         } else {
             trace!("Parsing {}", path.display());
-            match run_file(&path, &options) {
+            match parse(&path, &options) {
                 Err(e) => error!("{}", e),
                 Ok(_info) => ()
             }

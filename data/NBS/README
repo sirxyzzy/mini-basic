@@ -1,5 +1,9 @@
 National Bureau of Standards - Minimal BASIC test programs
 
+These were pulled from https://jorgicor.niobe.org/bas55/, the rest of this readme is from those files:
+
+------------------------------------------------------------------------------
+
 These are useful with Jorge Giner Cordero's ECMA-55 Minimal BASIC interpreter
 which you can get at https://jorgicor.niobe.org/bas55, or with
 John Gatewood Ham's ECMA-55 Minimal BASIC Compiler which you can get at

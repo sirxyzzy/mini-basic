@@ -133,6 +133,7 @@ impl<T: Clone+Default> ArrayStore<T> {
     pub fn set(&mut self, id: VarId, index: Number, value: T) -> Result<()> {
         let index = index.round() as usize;
         let v = self.things.entry(id).or_insert_with(||  vec![Default::default(); 11]);
+
         // The rules are arrays get auto created, size 11 (indexes 0..10) if they don't 
         // exist already!
 
@@ -186,22 +187,20 @@ impl<T: Clone+Default> Array2Store<T> {
     pub fn set(&mut self, id: VarId, index1: Number, index2: Number, value: T) -> Result<()> {
         let index1 = index1.round() as usize;
         let index2 = index2.round() as usize;
-        match self.things.get_mut(&id) {
-            Some((bound, v)) => {
-                if index2 > *bound {
-                    Err(Error::ArrayIndexOutOfRange(id, index2))
-                }
-                else {
-                    let index = (index1 * (*bound)) + index2;
-                    if index >= v.len() {
-                        Err(Error::ArrayIndexOutOfRange(id, index1))     
-                    } else {
-                        v[index] = Some(value);
-                        Ok(())                      
-                    }
-                }
+
+        let (bound, v) = self.things.entry(id).or_insert_with(|| (11, vec![Default::default(); 121]));
+
+        if index2 > *bound {
+            Err(Error::ArrayIndexOutOfRange(id, index2))
+        }
+        else {
+            let index = (index1 * (*bound)) + index2;
+            if index >= v.len() {
+                Err(Error::ArrayIndexOutOfRange(id, index1))     
+            } else {
+                v[index] = Some(value);
+                Ok(())                      
             }
-            None => Err(Error::UninitializedArray(id))
         }
     }
 }

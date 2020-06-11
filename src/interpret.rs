@@ -118,7 +118,7 @@ impl Runner {
         if v > 100000000.0 || v < 0.000000001 {
             // Force exponential format, note bug here
             // Basic likes always signed exponents
-            // for example, 4.E+24 instead of our 4E24
+            // for example, 4.E+24 instead of rusts 4E24
             format!("{}{:E} ", sign, v)
         } else {
             // We need to squelch the leading 0., if we get it
@@ -359,6 +359,11 @@ impl Runner {
                     next_index = self.line_number_to_index(*then)?;
                     trace!("Branching {} IF THEN {}", line, then)
                 }    
+            }
+
+            AstNode::OptionStatement{..} => {
+                return Err(self.runtime_error("Unimplemented Option"))
+                // Fail in test 56, look out, option statement have to be earlier than any decls or oth array accesses!
             }
 
             AstNode::DefStatement{..} => () ,
