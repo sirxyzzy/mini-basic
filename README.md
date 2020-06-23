@@ -1,4 +1,4 @@
-# mib-parser
+# mini-basic
 This project implements a parser for minimal Basic, written in pure Rust, this leverages Pest, the elegant parser, see https://pest.rs
 
 Running just Parse and AST, on the test suite which includes tests that are broken, with a release build gives:
