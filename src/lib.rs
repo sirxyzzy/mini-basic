@@ -7,6 +7,9 @@ extern crate itertools;
 extern crate rand;
 
 #[macro_use]
+extern crate float_cmp;
+
+#[macro_use]
 extern crate lazy_static;
 
 #[macro_use]

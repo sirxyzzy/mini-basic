@@ -19,5 +19,6 @@ thiserror = "1.0"
 rand = "0.7"
 lazy_static = "1.4"
 anyhow = "1.0"
+float-cmp = "0.8.0"
 
 

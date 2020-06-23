@@ -3,7 +3,6 @@
 use super::parser::{ Pair, Pairs, Rule};
 use super::*;
 use std::collections::HashSet;
-use vars;
 use std::str::FromStr;
 use itertools::Itertools;
 use super::vars::VarId;
@@ -212,11 +211,9 @@ pub fn get_line_number(node: &AstNode) -> u16 {
 // Am I a statement, yes if I have a line number!
 //
 pub fn is_statement(node: &AstNode) -> bool {
-    match get_line_number_maybe(node) {
-        Some(_) => true,
-        None => false
-    }
+    get_line_number_maybe(node).is_some()
 }
+
 
 /// Pretty print an AST, starting at any node
 pub fn print_ast(node: &AstNode) {
@@ -331,7 +328,7 @@ fn print_ast_helper(label: &str, node: &AstNode, level:usize) {
         _ => println!("{:?}", node) 
     }
 
-    fn print_ast_list_helper(thing: &str, nodes: &Vec<AstNode>, level:usize) {
+    fn print_ast_list_helper(thing: &str, nodes: &[AstNode], level:usize) {
         println!("{}", thing);
         for var in nodes.iter() {
             print_ast_helper("", var, level+1);
@@ -377,33 +374,28 @@ impl Error {
     }
 }
 
-pub fn first_child<'i>(pair: Pair<'i>) -> Pair<'i>{
-    let rule = pair.as_rule();
-    pair.into_inner().peek().expect(&format!("Expected first child in {:?}", rule))
+pub fn first_child(pair: Pair) -> Pair{
+    pair.into_inner().peek().expect("Expected first child")
 }
 
-pub fn first_two_children<'i>(pair: Pair<'i>) -> (Pair<'i>, Pair<'i>) {
-    let rule = pair.as_rule();
-    let mut pairs = pair.into_inner();
-    
-    let c1 = pairs.next().expect(&format!("Expected first child in {:?}", rule));
-    let c2 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
+pub fn first_two_children(pair: Pair) -> (Pair, Pair) {
+    let mut pairs = pair.into_inner();    
+    let c1 = pairs.next().expect("Expected first child");
+    let c2 = pairs.next().expect("Expected second child");
 
     (c1,c2)
 }
 
-pub fn first_three_children<'i>(pair: Pair<'i>) -> (Pair<'i>, Pair<'i>, Pair<'i>) {
-    let rule = pair.as_rule();
-    let mut pairs = pair.into_inner();
-    
-    let c1 = pairs.next().expect(&format!("Expected first child in {:?}", rule));
-    let c2 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
-    let c3 = pairs.next().expect(&format!("Expected second child in {:?}", rule));
+pub fn first_three_children(pair: Pair) -> (Pair, Pair, Pair) {
+    let mut pairs = pair.into_inner();    
+    let c1 = pairs.next().expect("Expected first child");
+    let c2 = pairs.next().expect("Expected second child");
+    let c3 = pairs.next().expect("Expected second child");
 
     (c1,c2,c3)
 }
 
-pub fn descendant<'i>(pair: Pair<'i>) -> Pair<'i> {
+pub fn descendant(pair: Pair) -> Pair {
     let mut here = pair;
     loop {
        let child = here.clone().into_inner().peek();
@@ -720,9 +712,9 @@ impl AstBuilder {
                 None => None
             };
 
-        let expression = mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?;
+        let expression = box mc.expect_ast(Rule::numeric_expression, Self::numeric_expression)?;
 
-        Ok(AstNode::DefStatement{line, id, parameters: parameters, expression: box expression})
+        Ok(AstNode::DefStatement{line, id, parameters, expression})
 
     }
 
@@ -987,15 +979,12 @@ impl AstBuilder {
         let mut lines = Self::block(pairs.next().unwrap())?;
 
         // Special case here, if in my block I see a FOR over the same variable, barf
-        for line in &lines {
-            match line {
-                AstNode::ForStatement{id, line, ..} => {
-                    if *id == for_id {
-                        let msg = format!("Cannot have a nested FOR at line {} with the same id {}", line, id);
-                        return Err(Error::new(&msg, &pair))
-                    }
+        for l in &lines {
+            if let AstNode::ForStatement{id, line, ..} = l {
+                if *id == for_id {
+                    let msg = format!("Cannot have a nested FOR at line {} with the same id {}", line, id);
+                    return Err(Error::new(&msg, &pair))
                 }
-                _ => ()
             }
         }
 
@@ -1027,7 +1016,7 @@ impl AstBuilder {
 
     // This can handle both line numbers and line number refs
     pub fn line_number(pair: Pair) -> u16 {
-        pair.as_str().trim().parse::<u16>().expect(&format!("Could not parse line number {}", pair))
+        pair.as_str().trim().parse::<u16>().expect("Could not parse line number")
     }
 
     pub fn end_line(_pair: Pair) -> Result<()> {

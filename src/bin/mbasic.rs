@@ -102,7 +102,7 @@ where P: AsRef<Path> {
     Ok(lines)
 }
  
-fn print_header(lines: &Vec<String>) {
+fn print_header(lines: &[String]) {
     for line in lines {
         println!("{}", line.trim());
     }

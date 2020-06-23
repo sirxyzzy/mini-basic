@@ -35,16 +35,13 @@ impl Runner {
 
         let mut data: Vec<String> = vec![];
         for line in lines.iter() {
-            match line {
-                AstNode::DataStatement{datums, line} => {
-                    for datum in datums {
-                        match datum {
-                            AstNode::StringVal(s) => data.push(s.clone()),
-                            x => panic!("Whoops, unhandled AST node {:?} extracting data {}", x, line)
-                        }
+            if let AstNode::DataStatement{datums, line} = line {
+                for datum in datums {
+                    match datum {
+                        AstNode::StringVal(s) => data.push(s.clone()),
+                        x => panic!("Whoops, unhandled AST node {:?} extracting data {}", x, line)
                     }
                 }
-                _ => ()
             }
         }
 
@@ -269,16 +266,13 @@ impl Runner {
                     }
                 
                     let mut bad_input = false;
-                    for pair in vars.into_iter().zip(datums.into_iter()) {
+                    for pair in vars.iter().zip(datums.into_iter()) {
                         let (variable, string_value) = pair;
 
-                        match self.assign_from_string(variable, string_value) {
-                            Err(e) => {
-                                println!("{}", e);
-                                bad_input = true;
-                                break;
-                            }
-                            Ok(_) => ()
+                        if let Err(e) = self.assign_from_string(variable, string_value) {
+                            println!("{}", e);
+                            bad_input = true;
+                            break;
                         }
                     }
 
@@ -374,7 +368,7 @@ impl Runner {
         match self.run_state() {
             State::Error(r) => {
                 error!("Runtime error");
-                Err(Error::RuntimeError(r.clone(), self.current_line_number()) )
+                Err(Error::RuntimeError(r, self.current_line_number()) )
             }
 
             State::Running => {
@@ -428,7 +422,7 @@ impl Runner {
         match expression
         {
             AstNode::StringExpression(e) => self.evaluate_string(e), // We may be wrapped in a StringExpression node
-            AstNode::StringRef(id) => Ok(self.string_var(*id)?.clone()),
+            AstNode::StringRef(id) => Ok(self.string_var(*id)?),
             AstNode::StringVal(v) => Ok(v.clone()),       
             x => panic!("Unexpected node in evaluate_string : {:?} ", x)
         }
@@ -468,8 +462,8 @@ impl Runner {
                             OpCode::Le => Ok(left_number <= right_number),
                             OpCode::Gt => Ok(left_number > right_number),
                             OpCode::Lt => Ok(left_number < right_number),
-                            OpCode::Eq => Ok(left_number == right_number),
-                            OpCode::Neq => Ok(left_number != right_number),
+                            OpCode::Eq => Ok(approx_eq!(f64, left_number, right_number, ulps = 2)),
+                            OpCode::Neq => Ok(!approx_eq!(f64, left_number, right_number, ulps = 2)),
 
                             x => panic!("In relational unexpected relational op {:?}", x)
                         }
@@ -663,7 +657,7 @@ impl Runner {
         let input = self.read_line();
         let mut datums: Vec<String> = vec![];
         for cap in RE.captures_iter(&input) {
-            match cap.get(1).or(cap.get(2)) {
+            match cap.get(1).or_else(|| cap.get(2)) {
                 Some(m) => {
                     datums.push(m.as_str().trim().to_string())
                 }
